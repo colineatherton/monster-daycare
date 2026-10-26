@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { commands, subscribe } from '../game/bus.ts';
 import type { GameSnapshot } from '../game/types/game.ts';
 import './GameHUD.css';
@@ -10,6 +10,8 @@ const NEED_EMOJI: Record<string, string> = {
   bored: '🧸',
   sad: '😢',
   arty: '🖍️',
+  musical: '🎵',
+  mathsy: '🔢',
 };
 
 function seconds(ms: number): string {
@@ -21,29 +23,59 @@ function clock(ms: number): string {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
-/** One line in the list down the right-hand side. */
+/** What this one is up to, in a few words. */
 function rosterLine(baby: GameSnapshot['babies'][number]): string {
-  if (baby.erupted) return 'DOING THE RITUAL';
+  if (baby.eruption === 'ritual') return 'DOING THE RITUAL';
+  if (baby.eruption === 'hunting') return 'HUNTING — give it a sock';
+  if (baby.eruption === 'angry') return 'LOOSE — give it a sock';
   if (baby.hasDrawing) return 'has a drawing for you 🖼️';
   if (baby.wants) return `wants ${baby.wants.name} ${baby.wants.emoji}`;
-  if (baby.need) return `${baby.need} ${NEED_EMOJI[baby.need]}`;
+  if (baby.need) return `${baby.need} ${NEED_EMOJI[baby.need] ?? ''}`;
   return 'happy 🙂';
 }
 
 export default function GameHUD({ onQuit }: { onQuit: () => void }) {
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => subscribe(setSnapshot), []);
 
+  // Put the menu where it was asked for, then shove it back on screen. The
+  // fridge menu is seven items tall and would otherwise run off the top.
+  // Writing the style straight onto the node avoids a re-render every frame
+  // as the camera moves.
+  useLayoutEffect(() => {
+    const element = menuRef.current;
+    if (!element) return;
+    const anchor = (element.dataset.anchor ?? '0,0').split(',').map(Number);
+    const width = element.offsetWidth;
+    const height = element.offsetHeight;
+    const pad = 12;
+
+    const left = Math.min(
+      Math.max(anchor[0], width / 2 + pad),
+      Math.max(width / 2 + pad, window.innerWidth - width / 2 - pad),
+    );
+    // `top` is the menu's bottom edge, because of the -100% transform.
+    const bottom = Math.min(
+      Math.max(anchor[1], height + pad),
+      Math.max(height + pad, window.innerHeight - pad),
+    );
+
+    element.style.left = `${left}px`;
+    element.style.top = `${bottom}px`;
+  });
+
   if (!snapshot) return null;
 
-  // The worst anomaly fuse is the only thing that can end the run, so it gets
-  // the biggest thing on the screen.
   const fuses = snapshot.babies
     .map((baby) => baby.fuseLeftMs)
     .filter((value): value is number => value !== null);
   const fuse = fuses.length > 0 ? Math.min(...fuses) : null;
-  const ritual = snapshot.babies.find((baby) => baby.erupted);
+  const ritual = snapshot.babies.find((baby) => baby.eruption === 'ritual');
+  const loose = snapshot.babies.find(
+    (baby) => baby.eruption === 'hunting' || baby.eruption === 'angry',
+  );
 
   return (
     <div className="hud">
@@ -52,7 +84,17 @@ export default function GameHUD({ onQuit }: { onQuit: () => void }) {
         <div className="pill">Day {snapshot.dayNumber}</div>
         <div className="pill">🕑 {clock(snapshot.dayTimeLeftMs)}</div>
         <div className="pill">🪙 {snapshot.coins}</div>
+        {snapshot.drawings > 0 && (
+          <div className="pill" title="drawings on the wall / drawings collected">
+            🖼️ {snapshot.onTheWall}/{snapshot.drawings}
+          </div>
+        )}
+        {snapshot.upgrades.shoes > 0 && <div className="pill">👟 ×{snapshot.upgrades.shoes}</div>}
+        <div className="pill pill--room">📍 {snapshot.playerRoom}</div>
         {snapshot.holding && <div className="pill pill--holding">🫳 {snapshot.holding.name}</div>}
+        {snapshot.teaMsLeft > 0 && (
+          <div className="pill pill--tea">☕ fast for {seconds(snapshot.teaMsLeft)}s</div>
+        )}
         <button
           className="pill pill--button"
           onClick={() => commands.current?.toggleMusic()}
@@ -65,23 +107,47 @@ export default function GameHUD({ onQuit }: { onQuit: () => void }) {
       {ritual ? (
         <div className="fuse fuse--panic fuse--ritual">
           <div className="fuse__label">🌀 It is doing the ritual — change its nappy!</div>
-          <div className="fuse__time">{seconds(ritual.ritualMsLeft ?? 0)}</div>
+          <div className="fuse__time">{seconds(ritual.eruptionMsLeft ?? 0)}</div>
+        </div>
+      ) : loose ? (
+        <div className="fuse fuse--panic fuse--loose">
+          <div className="fuse__label">
+            🧦 Something is loose in the building — give it a sock
+          </div>
+          <div className="fuse__time">
+            {loose.eruption === 'hunting' ? 'HUNTING' : seconds(loose.eruptionMsLeft ?? 0)}
+          </div>
         </div>
       ) : (
-        fuse !== null &&
-        fuse < 60_000 && (
-          <div className={`fuse${fuse < 20_000 ? ' fuse--panic' : ''}`}>
-            <div className="fuse__label">It is going to come through the door</div>
+        fuse !== null && (
+          <div className="fuse fuse--panic">
+            <div className="fuse__label">It is about to break the door down</div>
             <div className="fuse__time">{seconds(fuse)}</div>
           </div>
         )
+      )}
+
+      {snapshot.homeTime && (
+        <div className="hometime">
+          <div className="hometime__title">
+            Home time — {snapshot.homeTime.doneCount}/{snapshot.homeTime.totalCount} gone
+          </div>
+          <div className="hometime__hint">Carry each child to their own parent.</div>
+          {snapshot.homeTime.waiting.map((parent) => (
+            <div key={parent.id} className="hometime__row">
+              {parent.babyEaten ? '🛏️' : '👪'} waiting for <strong>{parent.babyName}</strong>
+            </div>
+          ))}
+        </div>
       )}
 
       <div className="roster">
         {snapshot.babies.map((baby) => (
           <div
             key={baby.id}
-            className={`roster__row${baby.isAnomaly ? ' roster__row--anomaly' : ''}`}
+            className={`roster__row${baby.isAnomaly ? ' roster__row--anomaly' : ''}${
+              baby.eruption !== 'none' ? ' roster__row--loose' : ''
+            }`}
           >
             <div className="roster__name">
               {baby.name}
@@ -89,6 +155,7 @@ export default function GameHUD({ onQuit }: { onQuit: () => void }) {
               {baby.holdingHands && ' 🤝'}
             </div>
             <div className="roster__want">{rosterLine(baby)}</div>
+            <div className="roster__where">in {baby.roomName}</div>
             <div className="roster__bar">
               <span
                 style={{
@@ -105,11 +172,8 @@ export default function GameHUD({ onQuit }: { onQuit: () => void }) {
       {snapshot.menu && (
         <div
           className="menu"
-          style={{
-            // Keep it on screen when you click something near an edge.
-            left: Math.min(Math.max(snapshot.menu.screenX, 140), window.innerWidth - 140),
-            top: Math.max(snapshot.menu.screenY, 230),
-          }}
+          ref={menuRef}
+          data-anchor={`${Math.round(snapshot.menu.screenX)},${Math.round(snapshot.menu.screenY)}`}
         >
           <button className="menu__close" onClick={() => commands.current?.closeMenu()}>
             ×
@@ -136,8 +200,8 @@ export default function GameHUD({ onQuit }: { onQuit: () => void }) {
       {snapshot.dayReport && !snapshot.gameOver && (
         <div className="overlay">
           <div className="card">
-            <h1>Home time</h1>
-            <p>Day {snapshot.dayReport.dayNumber} is over. The parents have come back.</p>
+            <h1>That is everyone</h1>
+            <p>Day {snapshot.dayReport.dayNumber} is over. Here is what they all said.</p>
 
             <div className="verdicts">
               {snapshot.dayReport.verdicts.map((verdict, index) => (
@@ -152,9 +216,7 @@ export default function GameHUD({ onQuit }: { onQuit: () => void }) {
                   </div>
                 </div>
               ))}
-              {snapshot.dayReport.verdicts.length === 0 && (
-                <p>Nobody turned up today. Quiet one.</p>
-              )}
+              {snapshot.dayReport.verdicts.length === 0 && <p>Nobody turned up today. Quiet one.</p>}
             </div>
 
             <p>

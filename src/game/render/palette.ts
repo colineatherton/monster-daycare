@@ -1,14 +1,25 @@
 /** The daycare's colours. Bright and nursery-ish, so the anomalies stand out. */
 export const PALETTE = {
   floor: 0xf6e3c5,
-  floorEdge: 0xe8cfa6,
+  /** Each room gets its own floor, so you always know where you are. */
+  floorMusic: 0xffe0ef,
+  floorStaff: 0xdfe8d8,
+  floorMaths: 0xd9e8ff,
+  floorAnomaly: 0x9a8794,
+
   wall: 0xbfe6f0,
   wallTop: 0x9fd4e2,
-  skirting: 0xfdfdfd,
+  partition: 0xfdf3e3,
+  partitionTop: 0xe8d6bb,
+  threshold: 0xffe9b8,
+
   rug: 0xffc2d4,
   rugRing: 0xfff0f5,
   door: 0x8a5a3b,
   doorFrame: 0x6b4430,
+  anomalyDoor: 0x4a3d46,
+  anomalyDoorFrame: 0x2b232b,
+
   fridge: 0xeaf7ff,
   fridgeTrim: 0xbcd9e8,
   toybox: 0xffb45c,
@@ -19,6 +30,19 @@ export const PALETTE = {
   tableLeg: 0xd9a55e,
   stool: 0xff9db0,
   bucket: 0x7ec8e3,
+
+  musicShelf: 0xffb3d1,
+  mathsDesk: 0x9ec5ff,
+  staffCounter: 0xc3d6b5,
+  sofa: 0x8fa87c,
+  registerDesk: 0xd9a55e,
+  registerTop: 0xffe3a8,
+  till: 0xe8eef5,
+  sockDrawer: 0xb08aa8,
+  sockDrawerTrim: 0x8a6a84,
+  penRing: 0xff5a5a,
+  penPost: 0x3a3038,
+
   highlight: 0xffe14d,
   teacherSkin: 0xf2c8a0,
   teacherHair: 0x6b4226,

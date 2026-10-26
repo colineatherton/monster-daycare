@@ -1,10 +1,28 @@
 /** The vocabulary of the whole game, in one page. */
 
+import type { RoomId } from '../config.ts';
+
 /** What a baby monster can want. */
-export type NeedKind = 'hungry' | 'thirsty' | 'sleepy' | 'bored' | 'sad' | 'arty';
+export type NeedKind =
+  | 'hungry'
+  | 'thirsty'
+  | 'sleepy'
+  | 'bored'
+  | 'sad'
+  | 'arty'
+  | 'musical'
+  | 'mathsy';
 
 /** What you can be holding. */
-export type ItemKind = 'food' | 'drink' | 'toy' | 'blanket' | 'crayons';
+export type ItemKind =
+  | 'food'
+  | 'drink'
+  | 'toy'
+  | 'blanket'
+  | 'crayons'
+  | 'instrument'
+  | 'maths'
+  | 'tea';
 
 /**
  * Labels carried by food. A fussy monster only ever asks for food wearing its
@@ -41,6 +59,14 @@ export interface Species {
   fussyAbout: Tag | null;
 }
 
+/**
+ * What an erupted anomaly is doing.
+ * - `ritual`: up in the air, needs its nappy changing.
+ * - `hunting`: loose in the building, walking towards a child to eat it.
+ * - `angry`: it has eaten, and will go hunting again unless given a sock.
+ */
+export type EruptionState = 'none' | 'ritual' | 'hunting' | 'angry';
+
 export interface Baby {
   id: string;
   species: Species;
@@ -67,18 +93,32 @@ export interface Baby {
   carried: boolean;
   /** Holding the player's hand, and following them about. */
   holdingHands: boolean;
-  /** A ritual anomaly whose fuse ran out: up in the air, nappy unchanged. */
-  erupted: boolean;
-  /** How long you have left to change its nappy and end the ritual. */
-  ritualMsLeft: number;
+  /** What this one is doing, if it has gone off. */
+  eruption: EruptionState;
+  /** How long you have left to change a nappy, or until it eats again. */
+  eruptionMsLeft: number;
+  /** Who it is walking towards, while hunting. */
+  huntingId: string | null;
 }
 
 /** A thing you can click on in the room. */
-export type TargetKind = 'baby' | 'fridge' | 'toybox' | 'cots' | 'table' | 'bucket';
+export type TargetKind =
+  | 'baby'
+  | 'parent'
+  | 'fridge'
+  | 'toybox'
+  | 'cots'
+  | 'table'
+  | 'bucket'
+  | 'instruments'
+  | 'sums'
+  | 'kettle'
+  | 'register'
+  | 'sockdrawer';
 
 export interface ClickTarget {
   kind: TargetKind;
-  /** Baby id, for baby targets. */
+  /** Baby id or parent id. */
   id?: string;
 }
 
@@ -90,25 +130,43 @@ export interface MenuAction {
   disabledBecause?: string;
 }
 
-/** One parent's verdict at home time. */
+/** One parent's verdict, once they have gone home. */
 export interface ParentVerdict {
   babyName: string;
-  speciesName: string;
   happy: boolean;
   said: string;
+}
+
+/** What you have bought at the register. */
+export interface Upgrades {
+  shoes: number;
+  sockDrawer: boolean;
+  strongDoor: boolean;
+  teapot: boolean;
+  nicerToys: boolean;
 }
 
 /** What the renderer hands to React every frame. */
 export interface GameSnapshot {
   daycareName: string;
   coins: number;
+  drawings: number;
+  /** Drawings hung on the playroom wall so far. */
+  onTheWall: number;
+  upgrades: Upgrades;
   dayNumber: number;
   dayTimeLeftMs: number;
+  /** Which room the player is standing in, in words. */
+  playerRoom: string;
   holding: Item | null;
+  /** How much longer the tea lasts. Zero when there is none. */
+  teaMsLeft: number;
   babies: Array<{
     id: string;
     name: string;
     speciesName: string;
+    roomName: string;
+    room: RoomId;
     need: NeedKind | null;
     /** What it is asking for, already turned into words and a picture. */
     wants: { emoji: string; name: string } | null;
@@ -117,13 +175,23 @@ export interface GameSnapshot {
     carried: boolean;
     holdingHands: boolean;
     isAnomaly: boolean;
-    erupted: boolean;
-    /** Milliseconds until it comes through the door. Null unless it is an
-     *  anomaly with an unmet need. */
+    eruption: EruptionState;
+    /** Milliseconds until it breaks out. Null unless a fuse is burning. */
     fuseLeftMs: number | null;
-    /** Milliseconds left to change its nappy, once the ritual has started. */
-    ritualMsLeft: number | null;
+    /** Nappy time, or time until it eats again. */
+    eruptionMsLeft: number | null;
   }>;
+  /** Home time: the queue of parents still waiting at the door. */
+  homeTime: {
+    waiting: Array<{
+      id: string;
+      babyName: string;
+      /** True once we have had to tell them their child was eaten. */
+      babyEaten: boolean;
+    }>;
+    doneCount: number;
+    totalCount: number;
+  } | null;
   /** The open menu, positioned in screen pixels by the renderer. */
   menu: {
     title: string;
@@ -132,7 +200,7 @@ export interface GameSnapshot {
     screenX: number;
     screenY: number;
   } | null;
-  /** Home time: what every parent said. Non-null pauses the game. */
+  /** The card at the end of a day, once every parent has gone. */
   dayReport: {
     dayNumber: number;
     verdicts: ParentVerdict[];
