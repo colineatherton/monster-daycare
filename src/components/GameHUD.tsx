@@ -28,6 +28,7 @@ function rosterLine(baby: GameSnapshot['babies'][number]): string {
   if (baby.eruption === 'ritual') return 'DOING THE RITUAL';
   if (baby.eruption === 'hunting') return 'HUNTING — give it a sock';
   if (baby.eruption === 'angry') return 'LOOSE — give it a sock';
+  if (baby.asleep) return baby.wantsWaking ? 'wants its dummy 🍼' : 'asleep 💤';
   if (baby.hasDrawing) return 'has a drawing for you 🖼️';
   if (baby.wants) return `wants ${baby.wants.name} ${baby.wants.emoji}`;
   if (baby.need) return `${baby.need} ${NEED_EMOJI[baby.need] ?? ''}`;
@@ -91,6 +92,11 @@ export default function GameHUD({ onQuit }: { onQuit: () => void }) {
         )}
         {snapshot.upgrades.shoes > 0 && <div className="pill">👟 ×{snapshot.upgrades.shoes}</div>}
         <div className="pill pill--room">📍 {snapshot.playerRoom}</div>
+        {snapshot.lunchtime && <div className="pill pill--lunch">🍽️ Lunchtime</div>}
+        {snapshot.messCount > 0 && (
+          <div className="pill pill--mess">🧹 {snapshot.messCount} to clean up</div>
+        )}
+        {snapshot.holdingMop && <div className="pill pill--holding">🧹 the mop</div>}
         {snapshot.holding && <div className="pill pill--holding">🫳 {snapshot.holding.name}</div>}
         {snapshot.teaMsLeft > 0 && (
           <div className="pill pill--tea">☕ fast for {seconds(snapshot.teaMsLeft)}s</div>
@@ -143,8 +149,11 @@ export default function GameHUD({ onQuit }: { onQuit: () => void }) {
 
       <div className="roster">
         {snapshot.babies.map((baby) => (
-          <div
+          <button
             key={baby.id}
+            type="button"
+            title={`Go to ${baby.name}`}
+            onClick={() => commands.current?.selectBaby(baby.id)}
             className={`roster__row${baby.isAnomaly ? ' roster__row--anomaly' : ''}${
               baby.eruption !== 'none' ? ' roster__row--loose' : ''
             }`}
@@ -165,7 +174,7 @@ export default function GameHUD({ onQuit }: { onQuit: () => void }) {
                 }}
               />
             </div>
-          </div>
+          </button>
         ))}
       </div>
 

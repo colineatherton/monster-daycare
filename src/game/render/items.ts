@@ -16,13 +16,17 @@ export function buildItem(item: Item): THREE.Group {
       group.add(teat);
       break;
     }
-    case 'blanket': {
-      const folded = box(0.26, 0.1, 0.2, item.colour);
-      folded.position.y = 0.06;
-      group.add(folded);
-      const fold = box(0.27, 0.03, 0.21, 0xffffff);
-      fold.position.y = 0.12;
-      group.add(fold);
+    case 'dummy': {
+      const teat = cyl(0.03, 0.045, 0.08, 0xffe3d6);
+      teat.position.y = 0.14;
+      group.add(teat);
+      const shield = cyl(0.075, 0.075, 0.025, item.colour);
+      shield.position.y = 0.1;
+      group.add(shield);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.012, 8, 16), mat(item.colour));
+      ring.position.y = 0.05;
+      ring.rotation.x = Math.PI / 2;
+      group.add(ring);
       break;
     }
     case 'tea': {

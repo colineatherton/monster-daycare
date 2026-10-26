@@ -51,6 +51,16 @@ export const PLAYER = {
   reach: 95,
 } as const;
 
+/** Nap time. */
+export const BEDS = {
+  /** How many beds there are. Fewer beds than children is the point. */
+  count: 4,
+  /** How long a baby sleeps before it wants waking up. */
+  sleepMs: 22_000,
+  /** Being put down in a bed is worth this much happiness. */
+  tuckedInReward: 20,
+} as const;
+
 export const BABIES = {
   /** Toddling speed when a baby wanders off on its own. */
   speed: 42,
@@ -130,6 +140,24 @@ export const SHOP = {
   nicerToysBonus: 18,
 } as const;
 
+/** Lunch, and the mess it leaves. */
+export const LUNCH = {
+  /** Lunch starts once this much of the day has gone. */
+  startAfterFraction: 0.45,
+  /** Lunch is over after this long whether or not everybody got fed. */
+  windowMs: 55_000,
+  /** Where the queue forms, and how far apart they stand. */
+  queueX: 1000,
+  queueY: 560,
+  queueSpacing: 130,
+  /** Each wrapper dropped afterwards is worth this to sweep up. */
+  moppingCoins: 6,
+  /** Children notice a filthy floor, and it costs them this much a second. */
+  messUnhappinessPerSecond: 1.6,
+  /** Below this many wrappers nobody minds. */
+  messTolerated: 2,
+} as const;
+
 export const DAY = {
   /** How long a day lasts before the parents come back. */
   lengthMs: 240_000,
@@ -142,8 +170,8 @@ export const PLACES = {
   frontDoor: { x: 1200, y: 60, w: 150, h: 40 },
   fridge: { x: 920, y: 150, w: 150, h: 110 },
   toybox: { x: 1480, y: 150, w: 150, h: 110 },
-  cots: { x: 960, y: 1340, w: 230, h: 130 },
-  table: { x: 1310, y: 1330, w: 190, h: 110 },
+  cots: { x: 1020, y: 1330, w: 380, h: 150 },
+  table: { x: 1400, y: 1110, w: 190, h: 110 },
   bucket: { x: 1520, y: 1360, w: 100, h: 100 },
   rug: { x: 1200, y: 760, w: 460, h: 420 },
 

@@ -163,23 +163,36 @@ well enough to be *annoyed* at being interrupted.
 `?day=3` on the end of the address opens straight onto the first day with an anomaly in
 it, so you do not have to play two quiet days every time you want to test the scary part.
 
+## Lunchtime, beds and the mop
+
+**Nobody is hungry all morning.** Just under halfway through the day the kitchen
+opens, everybody stops what they were doing and **lines up**, and each one names
+the single thing it wants. Serve them. Lunch ends when everyone has eaten, or
+when lunch is simply over — a child you never fed does not keep the day in
+limbo.
+
+**Then the floor is covered in wrappers.** Take the **mop** from the bucket and
+click each mess. More than a couple of them left lying about and the children
+notice and get miserable, so it is not optional tidying.
+
+**Naps happen in beds.** A sleepy monster does not want a blanket handed to it —
+you **pick it up**, carry it to the nap corner, and choose **"Place in bed"**.
+There are four beds and usually more than four children, which is the point.
+While it sleeps it has **💤** over its head; when it has had enough it asks for
+its **dummy**, and you fetch one from the nap corner to wake it up.
+
+Because blankets are gone, **a parent whose child is missing is offered a sock**.
+
+**The list down the side is now how you find anybody.** The building is much
+bigger than the screen, so tapping a child's name opens its menu wherever it is,
+and the teacher walks there.
+
+**On a tablet** there is a thumbstick in the bottom corner. There is no action
+button, because every verb comes from tapping something and picking from a menu.
+
 ## Wren's next list
 
-Straight from playtesting, in her words as far as possible. Nothing here is
-built yet.
-
-### The day gets a shape
-
-At the moment the children want food at any moment of the day, which is wrong.
-A day should go:
-
-1. **Morning.** Children arrive. **The register** — see below — has to be done.
-2. **Lunchtime**, in the middle of the day. Nobody is hungry before it. When it
-   comes, **they all line up for their food** and you serve them.
-3. **After lunch** they drop their wrappers on the floor, and **you mop it up**.
-   The mop and bucket are already in the corner of the playroom doing nothing.
-4. **Nap time.** See the beds, below.
-5. **Home time**, which already works.
+Straight from playtesting, in her words as far as possible. What is left:
 
 ### The register is an actual register
 
@@ -187,28 +200,11 @@ Not a shop — a register, the kind a teacher does. When a child walks in, their
 name appears on a list with a **tick box**, and you click the box to tick them
 in. The shop moves out to **its own room**.
 
-### Beds, properly
-
-A sleepy child should not be handed a blanket where it stands. You **pick it
-up**, carry it to a bed, and choose **"Place in bed"** — and it actually gets
-into the bed. While it is asleep it has **Zs coming out of it**. To wake it up
-again you give it a **dummy**.
-
-Because the blankets are spoken for, **a parent whose child is missing gets a
-sock** instead of a blanket.
-
 ### They wander off
 
 Children should be able to walk into the other rooms on their own. If one gets
 into the **staff room** you have to carry it out, or **it breaks the coffee
 machine** and you have to buy a new one.
-
-### How it all hangs together
-
-Most of this is one idea: the day stops being a flat stretch of "somebody wants
-something" and gets a shape, with a rush at lunchtime, a mess afterwards, and a
-quiet bit at nap time. The register at the start and home time at the end
-already bookend it. That is a much better day than the one in the game now.
 
 ## Still to decide
 

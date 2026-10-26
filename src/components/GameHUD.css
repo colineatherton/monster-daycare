@@ -367,3 +367,81 @@
   padding: 3px 0;
   border-top: 2px dotted rgba(0, 0, 0, 0.15);
 }
+
+/* -------------------------------------------------- lunch and mess */
+
+.pill--lunch {
+  background: #ffd9a8;
+}
+
+.pill--mess {
+  background: #e8d5c0;
+}
+
+/* -------------------------------------------------- tablets */
+
+@media (max-width: 1000px) {
+  .pill {
+    font-size: 13px;
+    padding: 5px 12px;
+    border-width: 2px;
+  }
+
+  .roster {
+    width: 150px;
+    top: 54px;
+  }
+
+  .roster__row {
+    font-size: 12px;
+    padding: 5px 8px;
+  }
+
+  .roster__where {
+    display: none;
+  }
+
+  .hometime {
+    width: 180px;
+    font-size: 13px;
+  }
+
+  .menu {
+    min-width: 200px;
+    max-height: min(68vh, 460px);
+  }
+
+  .menu__action {
+    /* Fingers need a bigger target than a mouse pointer does. */
+    padding: 11px 12px;
+    font-size: 15px;
+  }
+
+  .hud__hint {
+    font-size: 13px;
+    max-width: 70vw;
+    bottom: 10px;
+  }
+}
+
+@media (max-height: 560px) {
+  .roster {
+    max-height: 56vh;
+    overflow-y: auto;
+  }
+}
+
+/* The list down the side is also how you reach a child in another room. */
+.roster__row {
+  font: inherit;
+  font-weight: 650;
+  text-align: left;
+  width: 100%;
+  color: inherit;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.roster__row:hover {
+  border-color: var(--purple);
+}

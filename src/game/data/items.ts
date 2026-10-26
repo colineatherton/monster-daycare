@@ -14,7 +14,7 @@ export const ITEMS: Item[] = [
   { id: 'sock', kind: 'food', name: 'a sock', emoji: '🧦', tags: ['sock', 'squishy'], colour: 0xb7b7d8 },
   { id: 'bluecake', kind: 'food', name: 'blue cake', emoji: '🎂', tags: ['sweet', 'blue'], colour: 0x4aa8ff },
   { id: 'worms', kind: 'food', name: 'jelly worms', emoji: '🪱', tags: ['slimy', 'squishy'], colour: 0x6bd36b },
-  { id: 'milk', kind: 'drink', name: 'a bottle of milk', emoji: '🍼', tags: ['warm'], colour: 0xfff6e0 },
+  { id: 'milk', kind: 'drink', name: 'a glass of milk', emoji: '🥛', tags: ['warm'], colour: 0xfff6e0 },
   { id: 'slime', kind: 'drink', name: 'slime juice', emoji: '🧋', tags: ['slimy', 'blue'], colour: 0x3fd0d0 },
 
   // The toy box, in the playroom.
@@ -22,8 +22,10 @@ export const ITEMS: Item[] = [
   { id: 'rattle', kind: 'toy', name: 'a rattle', emoji: '🪇', tags: [], colour: 0xffd166 },
   { id: 'teddy', kind: 'toy', name: 'a teddy', emoji: '🧸', tags: ['squishy'], colour: 0xc08552 },
 
-  // The nap corner and the colouring table.
-  { id: 'blanket', kind: 'blanket', name: 'a blanket', emoji: '🛏️', tags: ['warm'], colour: 0xa78bfa },
+  // The nap corner and the colouring table. A sleepy monster does not want a
+  // blanket handed to it — it wants carrying to a bed — so the nap corner
+  // keeps dummies, for waking them up again afterwards.
+  { id: 'dummy', kind: 'dummy', name: 'a dummy', emoji: '🍼', tags: ['squishy'], colour: 0xff9db0 },
   { id: 'crayons', kind: 'crayons', name: 'the crayons', emoji: '🖍️', tags: [], colour: 0xff5a5a },
 
   // The music room.

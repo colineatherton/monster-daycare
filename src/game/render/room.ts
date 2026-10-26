@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { ball, box, cyl, mat, torus } from './three-helpers.ts';
 import { kx, ku, kz } from './three-helpers.ts';
 import { PALETTE } from './palette.ts';
-import { DOORWAYS, PLACES, ROOM, ROOMS } from '../config.ts';
+import { BEDS, DOORWAYS, PLACES, ROOM, ROOMS } from '../config.ts';
 import type { RoomId } from '../config.ts';
 
 /**
@@ -72,6 +72,21 @@ export function partitionWalls(): WallRect[] {
   walls.push({ x: 1995, y: 755, w: 800, h: PARTITION });
 
   return walls;
+}
+
+/** Where bed `index` sits, as an offset from the middle of the nap corner. */
+export function bedOffsetX(index: number): number {
+  const spacing = ku(PLACES.cots.w) / BEDS.count;
+  return (index - (BEDS.count - 1) / 2) * spacing;
+}
+
+/** Where bed `index` is on the floor plan, for putting a baby down on it. */
+export function bedPosition(index: number): { x: number; y: number } {
+  const spacing = PLACES.cots.w / BEDS.count;
+  return {
+    x: PLACES.cots.x + (index - (BEDS.count - 1) / 2) * spacing,
+    y: PLACES.cots.y,
+  };
 }
 
 function furnitureBase(place: { x: number; y: number }): THREE.Group {
@@ -256,17 +271,20 @@ export function buildRoom(): RoomModel {
   cots.add(cotTarget);
   clickable.push(cotTarget);
 
-  for (const dx of [-0.58, 0.1]) {
-    const mattress = box(0.6, 0.18, 0.95, PALETTE.cot);
+  // Four beds in a row. There are usually more children than beds, which is
+  // the whole tension of nap time.
+  for (let i = 0; i < BEDS.count; i += 1) {
+    const dx = bedOffsetX(i);
+    const mattress = box(0.54, 0.18, 0.95, PALETTE.cot);
     mattress.position.set(dx, 0.26, 0);
     mattress.castShadow = true;
     cots.add(mattress);
     for (const dz of [-0.47, 0.47]) {
-      const end = box(0.64, 0.42, 0.06, PALETTE.cotFrame);
+      const end = box(0.58, 0.42, 0.06, PALETTE.cotFrame);
       end.position.set(dx, 0.3, dz);
       cots.add(end);
     }
-    const pillow = box(0.42, 0.1, 0.22, 0xfff3d6);
+    const pillow = box(0.38, 0.1, 0.22, 0xfff3d6);
     pillow.position.set(dx, 0.4, -0.3);
     cots.add(pillow);
   }
@@ -581,6 +599,36 @@ export function hangDrawing(index: number, colour: number): THREE.Group {
     1.45 - row * 0.45,
     kz(ROOMS.play.y0) - 0.02,
   );
+  return group;
+}
+
+/**
+ * A dropped lunch wrapper. Deliberately bright and a bit horrible, so a
+ * messy floor reads from across the room.
+ */
+export function buildMess(seed: number): THREE.Group {
+  const group = new THREE.Group();
+  const colours = [0xff7a7a, 0xffd166, 0x7ed957, 0x6ec6ff, 0xff9ddd];
+
+  for (let i = 0; i < 4; i += 1) {
+    const colour = colours[(seed + i) % colours.length];
+    const scrap = box(0.1 + ((seed + i) % 3) * 0.03, 0.015, 0.07, colour);
+    const angle = ((seed * 11 + i * 29) % 360) * (Math.PI / 180);
+    const radius = 0.06 + ((seed + i) % 4) * 0.035;
+    scrap.position.set(Math.cos(angle) * radius, 0.012, Math.sin(angle) * radius);
+    scrap.rotation.y = angle;
+    group.add(scrap);
+  }
+
+  // A splodge underneath, so it reads as a mess rather than confetti.
+  const splodge = new THREE.Mesh(
+    new THREE.CircleGeometry(0.2, 16),
+    new THREE.MeshBasicMaterial({ color: 0xb08a6a, transparent: true, opacity: 0.35 }),
+  );
+  splodge.rotation.x = -Math.PI / 2;
+  splodge.position.y = 0.006;
+  group.add(splodge);
+
   return group;
 }
 

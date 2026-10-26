@@ -18,7 +18,7 @@ export type ItemKind =
   | 'food'
   | 'drink'
   | 'toy'
-  | 'blanket'
+  | 'dummy'
   | 'crayons'
   | 'instrument'
   | 'maths'
@@ -93,6 +93,16 @@ export interface Baby {
   carried: boolean;
   /** Holding the player's hand, and following them about. */
   holdingHands: boolean;
+  /** Its place in the lunch queue, while lunch is on. */
+  lunchSlot: number | null;
+  /** Tucked up in bed, with Zs coming off it. */
+  asleep: boolean;
+  /** Which bed it is in, while it is asleep. */
+  bedIndex: number | null;
+  /** Counts down while asleep; at zero it wants waking with a dummy. */
+  sleepMsLeft: number;
+  /** It has had its nap and would like a dummy now, please. */
+  wantsWaking: boolean;
   /** What this one is doing, if it has gone off. */
   eruption: EruptionState;
   /** How long you have left to change a nappy, or until it eats again. */
@@ -108,8 +118,10 @@ export type TargetKind =
   | 'fridge'
   | 'toybox'
   | 'cots'
+  | 'bed'
   | 'table'
   | 'bucket'
+  | 'mess'
   | 'instruments'
   | 'sums'
   | 'kettle'
@@ -158,6 +170,12 @@ export interface GameSnapshot {
   dayTimeLeftMs: number;
   /** Which room the player is standing in, in words. */
   playerRoom: string;
+  /** True while everybody is queuing for their lunch. */
+  lunchtime: boolean;
+  /** Wrappers still on the floor. */
+  messCount: number;
+  /** True while you are holding the mop rather than an item. */
+  holdingMop: boolean;
   holding: Item | null;
   /** How much longer the tea lasts. Zero when there is none. */
   teaMsLeft: number;
@@ -171,6 +189,8 @@ export interface GameSnapshot {
     /** What it is asking for, already turned into words and a picture. */
     wants: { emoji: string; name: string } | null;
     hasDrawing: boolean;
+    asleep: boolean;
+    wantsWaking: boolean;
     happiness: number;
     carried: boolean;
     holdingHands: boolean;

@@ -1,11 +1,15 @@
 import { useState } from 'react';
 import GameCanvas from './components/GameCanvas.tsx';
 import GameHUD from './components/GameHUD.tsx';
+import TouchControls from './components/TouchControls.tsx';
+import { prefersTouchControls } from './game/input.ts';
 import type { SkinId } from './game/render/player.ts';
 import './App.css';
 
 export default function App() {
   const [playing, setPlaying] = useState(false);
+  // Checked once: a tablet does not turn into a laptop halfway through.
+  const [touch] = useState(prefersTouchControls);
   const [name, setName] = useState('');
   const [skin, setSkin] = useState<SkinId>('teacher');
 
@@ -65,9 +69,10 @@ export default function App() {
           </button>
 
           <p className="title__controls">
-            Walk with <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> or the arrow keys.
-            Click a monster, the fridge, the toy box, the cots or the colouring table to see
-            what you can do. There is music — the button at the top turns it off.
+            Tap a monster or a cupboard and pick from the menu — you walk over and do it by
+            yourself. On a tablet there is a thumbstick in the corner if you want to walk
+            about; on a keyboard it is <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> or
+            the arrow keys. The button at the top turns the music off.
           </p>
         </div>
       </div>
@@ -78,6 +83,7 @@ export default function App() {
     <div className="stage">
       <GameCanvas daycareName={daycareName} skin={skin} firstDay={firstDay} />
       <GameHUD onQuit={() => setPlaying(false)} />
+      {touch && <TouchControls />}
     </div>
   );
 }

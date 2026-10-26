@@ -40,10 +40,39 @@ export function attachInput(): () => void {
   };
 }
 
-/** Normalised walk direction from the keys, in room-plan axes. */
+/**
+ * The on-screen thumbstick, written by React and read by the loop. The game
+ * cannot tell the difference between this and the keyboard.
+ */
+class TouchInput {
+  x = 0;
+  y = 0;
+
+  setMove(x: number, y: number): void {
+    this.x = x;
+    this.y = y;
+  }
+}
+
+export const touchInput = new TouchInput();
+
+/**
+ * Whether this device wants on-screen controls: a coarse pointer (finger)
+ * rather than a mouse. Checked once, since it does not change mid-session.
+ */
+export function prefersTouchControls(): boolean {
+  if (typeof window === 'undefined') return false;
+  return (
+    window.matchMedia?.('(hover: none) and (pointer: coarse)').matches ||
+    // iPadOS 13+ reports itself as a Mac, but with touch points.
+    (navigator.maxTouchPoints > 1 && /Mac|iPad|iPhone/.test(navigator.userAgent))
+  );
+}
+
+/** Normalised walk direction from the keys or the stick, in room-plan axes. */
 export function walkVector(): { x: number; y: number } {
-  let x = 0;
-  let y = 0;
+  let x = touchInput.x;
+  let y = touchInput.y;
   for (const code of pressed) {
     const dir = MOVE_KEYS[code];
     if (!dir) continue;
@@ -52,12 +81,11 @@ export function walkVector(): { x: number; y: number } {
   }
   const length = Math.hypot(x, y);
   if (length === 0) return { x: 0, y: 0 };
-  return { x: x / length, y: y / length };
+  // Clamp rather than always normalising, so a half-pushed stick walks slowly.
+  const scale = Math.min(length, 1) / length;
+  return { x: x * scale, y: y * scale };
 }
 
 export function isPressed(code: string): boolean {
   return pressed.has(code);
 }
-
-/** Touch stick, written by React and read by the loop. */
-export const touch = { x: 0, y: 0, active: false };

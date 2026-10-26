@@ -27,6 +27,8 @@ export function subscribe(listener: Listener): () => void {
 /** What the HUD can ask the game to do. */
 export interface Commands {
   chooseMenuAction: (actionId: string) => void;
+  /** Open a child's menu from the list down the side, wherever it is. */
+  selectBaby: (babyId: string) => void;
   closeMenu: () => void;
   restart: () => void;
   /** Dismiss the home-time card and open up again tomorrow. */
