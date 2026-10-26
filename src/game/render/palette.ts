@@ -4,6 +4,7 @@ export const PALETTE = {
   /** Each room gets its own floor, so you always know where you are. */
   floorMusic: 0xffe0ef,
   floorStaff: 0xdfe8d8,
+  floorShop: 0xfff0d0,
   floorMaths: 0xd9e8ff,
   floorAnomaly: 0x9a8794,
 
@@ -35,6 +36,8 @@ export const PALETTE = {
   mathsDesk: 0x9ec5ff,
   staffCounter: 0xc3d6b5,
   sofa: 0x8fa87c,
+  shopCounter: 0xe0b35c,
+  shopTrim: 0xb8862f,
   registerDesk: 0xd9a55e,
   registerTop: 0xffe3a8,
   till: 0xe8eef5,

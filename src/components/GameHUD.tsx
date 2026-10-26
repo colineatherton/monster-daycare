@@ -92,6 +92,12 @@ export default function GameHUD({ onQuit }: { onQuit: () => void }) {
         )}
         {snapshot.upgrades.shoes > 0 && <div className="pill">👟 ×{snapshot.upgrades.shoes}</div>}
         <div className="pill pill--room">📍 {snapshot.playerRoom}</div>
+        {!snapshot.upgrades.coffeeMachine && (
+          <div className="pill pill--broken">☕ coffee machine broken</div>
+        )}
+        {snapshot.toTickIn > 0 && (
+          <div className="pill pill--register">📋 {snapshot.toTickIn} to tick in</div>
+        )}
         {snapshot.lunchtime && <div className="pill pill--lunch">🍽️ Lunchtime</div>}
         {snapshot.messCount > 0 && (
           <div className="pill pill--mess">🧹 {snapshot.messCount} to clean up</div>
@@ -159,6 +165,7 @@ export default function GameHUD({ onQuit }: { onQuit: () => void }) {
             }`}
           >
             <div className="roster__name">
+              {baby.tickedIn ? '' : '📋 '}
               {baby.name}
               {baby.carried && ' 🤲'}
               {baby.holdingHands && ' 🤝'}

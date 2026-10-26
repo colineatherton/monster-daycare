@@ -49,26 +49,29 @@ const PARTITION_HEIGHT = 0.52;
 export function partitionWalls(): WallRect[] {
   const walls: WallRect[] = [];
 
-  // The two long partitions either side of the playroom, each broken by two
-  // doorways.
-  for (const [x, top, bottom] of [
-    [800, DOORWAYS.music, DOORWAYS.staff],
-    [1600, DOORWAYS.maths, DOORWAYS.anomaly],
+  // The two long partitions either side of the playroom, each broken by a
+  // doorway into every room on that side. Built from the gaps, so the walls
+  // can never drift out of step with the doors.
+  for (const [x, doorways] of [
+    [800, [DOORWAYS.music, DOORWAYS.staff, DOORWAYS.shop]],
+    [1600, [DOORWAYS.maths, DOORWAYS.anomaly]],
   ] as const) {
-    const spans: Array<[number, number]> = [
-      [0, top.y0],
-      [top.y1, bottom.y0],
-      [bottom.y1, ROOM.depth],
-    ];
-    for (const [y0, y1] of spans) {
-      if (y1 <= y0) continue;
-      walls.push({ x, y: (y0 + y1) / 2, w: PARTITION, h: y1 - y0 });
+    let from = 0;
+    for (const doorway of doorways) {
+      if (doorway.y0 > from) {
+        walls.push({ x, y: (from + doorway.y0) / 2, w: PARTITION, h: doorway.y0 - from });
+      }
+      from = doorway.y1;
+    }
+    if (ROOM.depth > from) {
+      walls.push({ x, y: (from + ROOM.depth) / 2, w: PARTITION, h: ROOM.depth - from });
     }
   }
 
-  // The walls splitting each side column in two. No doors: everything goes
-  // back through the playroom, which keeps the shape of the place simple.
-  walls.push({ x: 400, y: 755, w: 800, h: PARTITION });
+  // The walls splitting the side columns into rooms. No doors between them:
+  // everything goes back through the playroom, which keeps the shape simple.
+  walls.push({ x: 400, y: 615, w: 800, h: PARTITION });
+  walls.push({ x: 400, y: 1055, w: 800, h: PARTITION });
   walls.push({ x: 1995, y: 755, w: 800, h: PARTITION });
 
   return walls;
@@ -137,6 +140,7 @@ export function buildRoom(): RoomModel {
 
   root.add(floorPatch('music', PALETTE.floorMusic));
   root.add(floorPatch('staff', PALETTE.floorStaff));
+  root.add(floorPatch('shop', PALETTE.floorShop));
   root.add(floorPatch('maths', PALETTE.floorMaths));
   root.add(floorPatch('anomaly', PALETTE.floorAnomaly));
 
@@ -192,7 +196,7 @@ export function buildRoom(): RoomModel {
   /* --------------------------------------------------------- the doorways */
 
   // A painted threshold on the floor, so you can see where to walk through.
-  for (const doorway of [DOORWAYS.music, DOORWAYS.staff, DOORWAYS.maths]) {
+  for (const doorway of [DOORWAYS.music, DOORWAYS.staff, DOORWAYS.shop, DOORWAYS.maths]) {
     const threshold = box(ku(PARTITION), 0.02, ku(doorway.y1 - doorway.y0), PALETTE.threshold);
     threshold.position.set(kx(doorway.x), 0.012, kz((doorway.y0 + doorway.y1) / 2));
     root.add(threshold);
@@ -507,6 +511,8 @@ export function buildRoom(): RoomModel {
 
   /* --------------------------------------------------------- the register */
 
+  // The register: a desk by the door with the day's list on it, the kind a
+  // teacher ticks names off.
   const register = furnitureBase(PLACES.register);
   const desk = box(ku(PLACES.register.w), 0.68, ku(PLACES.register.h), PALETTE.registerDesk);
   desk.position.y = 0.34;
@@ -515,26 +521,83 @@ export function buildRoom(): RoomModel {
   register.add(desk);
   clickable.push(desk);
 
-  const deskTop = box(ku(PLACES.register.w) + 0.08, 0.06, ku(PLACES.register.h) + 0.08, PALETTE.registerTop);
+  const deskTop = box(
+    ku(PLACES.register.w) + 0.08,
+    0.06,
+    ku(PLACES.register.h) + 0.08,
+    PALETTE.registerTop,
+  );
   deskTop.position.y = 0.71;
   register.add(deskTop);
 
-  // A till with a little screen and some keys.
-  const till = box(0.3, 0.2, 0.26, PALETTE.till);
-  till.position.set(0.1, 0.84, 0);
-  register.add(till);
-  const screen = box(0.2, 0.13, 0.03, 0x9ff5c9);
-  screen.position.set(0.1, 0.96, 0.1);
-  register.add(screen);
-  for (let i = 0; i < 6; i += 1) {
-    const key = box(0.035, 0.02, 0.035, 0xfdfdfd);
-    key.position.set(0.02 + (i % 3) * 0.06, 0.945, -0.02 - Math.floor(i / 3) * 0.05);
-    register.add(key);
+  // A clipboard with a column of ticks down it.
+  const board = box(0.34, 0.03, 0.44, 0xfdfdfd);
+  board.position.set(0, 0.76, 0);
+  board.rotation.y = 0.2;
+  register.add(board);
+  const clip = box(0.14, 0.04, 0.05, 0x8d949e);
+  clip.position.set(0, 0.79, -0.18);
+  clip.rotation.y = 0.2;
+  register.add(clip);
+  for (let i = 0; i < 5; i += 1) {
+    const line = box(0.2, 0.008, 0.016, 0x9aa3ad);
+    line.position.set(0.02, 0.785, -0.12 + i * 0.07);
+    line.rotation.y = 0.2;
+    register.add(line);
+    const tick = box(0.03, 0.008, 0.03, i < 2 ? 0x4cc46a : 0xdfe6ec);
+    tick.position.set(-0.12, 0.785, -0.12 + i * 0.07);
+    tick.rotation.y = 0.2;
+    register.add(tick);
   }
-  const coinStack = cyl(0.055, 0.055, 0.09, 0xffd166);
-  coinStack.position.set(-0.28, 0.78, 0);
-  register.add(coinStack);
+  const biro = cyl(0.012, 0.012, 0.18, 0x3a3a44);
+  biro.rotation.z = Math.PI / 2;
+  biro.position.set(0.1, 0.78, 0.2);
+  register.add(biro);
   root.add(register);
+
+  /* --------------------------------------------------------- the shop */
+
+  const shop = furnitureBase(PLACES.shopCounter);
+  const counterTop = box(ku(PLACES.shopCounter.w), 0.72, ku(PLACES.shopCounter.h), PALETTE.shopCounter);
+  counterTop.position.y = 0.36;
+  counterTop.castShadow = true;
+  counterTop.userData.target = { kind: 'shop' };
+  shop.add(counterTop);
+  clickable.push(counterTop);
+
+  const lip = box(ku(PLACES.shopCounter.w) + 0.1, 0.07, ku(PLACES.shopCounter.h) + 0.1, PALETTE.shopTrim);
+  lip.position.y = 0.75;
+  shop.add(lip);
+
+  // A till, and the things for sale lined up on the counter.
+  const till = box(0.3, 0.2, 0.26, PALETTE.till);
+  till.position.set(-0.9, 0.89, 0);
+  shop.add(till);
+  const screen = box(0.2, 0.13, 0.03, 0x9ff5c9);
+  screen.position.set(-0.9, 1.01, 0.1);
+  shop.add(screen);
+  const coinStack = cyl(0.055, 0.055, 0.09, 0xffd166);
+  coinStack.position.set(-0.55, 0.83, 0.05);
+  shop.add(coinStack);
+
+  // A shoe, a sock, a teapot and a door, roughly.
+  const shoe = box(0.16, 0.1, 0.26, 0x2b2b33);
+  shoe.position.set(-0.15, 0.84, 0);
+  shop.add(shoe);
+  const sock = box(0.12, 0.09, 0.2, 0xb7b7d8);
+  sock.position.set(0.15, 0.83, 0);
+  shop.add(sock);
+  const teapot = cyl(0.1, 0.12, 0.16, 0xdfe6ec);
+  teapot.position.set(0.45, 0.87, 0);
+  shop.add(teapot);
+  const teapotSpout = cyl(0.025, 0.04, 0.12, 0xdfe6ec);
+  teapotSpout.rotation.z = -0.9;
+  teapotSpout.position.set(0.58, 0.9, 0);
+  shop.add(teapotSpout);
+  const spareDoor = box(0.06, 0.4, 0.26, PALETTE.anomalyDoor);
+  spareDoor.position.set(0.85, 0.99, 0);
+  shop.add(spareDoor);
+  root.add(shop);
 
   /* ------------------------------------------------------ the sock drawer */
 

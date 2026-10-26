@@ -21,8 +21,9 @@ export const UNITS_PER_METRE = 80;
  * opens off it, so you are always going back through the middle.
  */
 export const ROOMS = {
-  music: { x0: 20, y0: 20, x1: 790, y1: 740, name: 'the music room' },
-  staff: { x0: 20, y0: 770, x1: 790, y1: 1480, name: 'the staff room' },
+  music: { x0: 20, y0: 20, x1: 790, y1: 600, name: 'the music room' },
+  staff: { x0: 20, y0: 630, x1: 790, y1: 1040, name: 'the staff room' },
+  shop: { x0: 20, y0: 1070, x1: 790, y1: 1480, name: 'the shop' },
   play: { x0: 810, y0: 20, x1: 1590, y1: 1480, name: 'the playroom' },
   maths: { x0: 1610, y0: 20, x1: 2380, y1: 740, name: 'the maths room' },
   anomaly: { x0: 1610, y0: 770, x1: 2380, y1: 1480, name: 'the anomaly room' },
@@ -32,8 +33,9 @@ export type RoomId = keyof typeof ROOMS;
 
 /** Where the doorways are. The anomaly room's is the one that gets broken. */
 export const DOORWAYS = {
-  music: { x: 800, y0: 300, y1: 480 },
-  staff: { x: 800, y0: 1020, y1: 1200 },
+  music: { x: 800, y0: 240, y1: 400 },
+  staff: { x: 800, y0: 760, y1: 910 },
+  shop: { x: 800, y0: 1210, y1: 1360 },
   maths: { x: 1600, y0: 300, y1: 480 },
   anomaly: { x: 1600, y0: 1020, y1: 1200 },
 } as const;
@@ -78,6 +80,11 @@ export const BABIES = {
   needMetReward: 22,
   /** Being given the wrong thing. Crosser, not happier. */
   wrongThingPenalty: 10,
+  /** How long a baby keeps toddling after it starts wanting something,
+   *  before it settles down to stare at you until you bring it. */
+  settleAfterMs: 9_000,
+  /** How long a baby can be in the staff room before the coffee machine goes. */
+  staffRoomGraceMs: 18_000,
   /** How long a baby colours for before its drawing is finished. */
   drawingMs: 14_000,
   /** Taking a drawing is worth this, and they love you for it. */
@@ -119,6 +126,12 @@ export const ANOMALY = {
 } as const;
 
 /** The marketplace. Prices in coins, and what each one actually does. */
+export const COFFEE = {
+  /** What a replacement coffee machine costs. */
+  price: 80,
+  /** Without one, no tea, and tea is how you keep up. */
+} as const;
+
 export const SHOP = {
   /** Repeatable: each pair makes you a bit faster, for good. */
   shoesPrice: 60,
@@ -175,10 +188,11 @@ export const PLACES = {
   bucket: { x: 1520, y: 1360, w: 100, h: 100 },
   rug: { x: 1200, y: 760, w: 460, h: 420 },
 
-  instruments: { x: 300, y: 300, w: 230, h: 130 },
+  instruments: { x: 300, y: 260, w: 230, h: 130 },
   sums: { x: 2060, y: 300, w: 230, h: 130 },
-  kettle: { x: 300, y: 1060, w: 190, h: 110 },
+  kettle: { x: 290, y: 850, w: 190, h: 110 },
+  shopCounter: { x: 300, y: 1270, w: 240, h: 120 },
   pen: { x: 2000, y: 1130, w: 300, h: 240 },
-  register: { x: 1430, y: 480, w: 150, h: 100 },
+  register: { x: 1200, y: 330, w: 160, h: 100 },
   sockDrawer: { x: 1480, y: 1120, w: 120, h: 90 },
 } as const;

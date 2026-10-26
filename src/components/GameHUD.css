@@ -445,3 +445,11 @@
 .roster__row:hover {
   border-color: var(--purple);
 }
+
+.pill--register {
+  background: #ffe9f2;
+}
+
+.pill--broken {
+  background: #ffd9d9;
+}

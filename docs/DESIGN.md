@@ -190,21 +190,24 @@ and the teacher walks there.
 **On a tablet** there is a thumbstick in the bottom corner. There is no action
 button, because every verb comes from tapping something and picking from a menu.
 
-## Wren's next list
+## The register, the shop, and wandering off
 
-Straight from playtesting, in her words as far as possible. What is left:
+**The register is a register**, the kind a teacher does. A desk just inside the
+front door with the day's list on it: every child who arrives needs ticking off,
+and the list down the side marks the ones you have missed with 📋. Ticking a
+child in is worth a few coins. Leave somebody off it all day and their parent
+says so at home time, however good a day the child had.
 
-### The register is an actual register
+**The shop has its own room**, bottom left, past the staff room. That is where
+the coins go: comfy shoes, a sock drawer by the anomaly room, a stronger door, a
+bigger teapot, nicer toys — and a replacement coffee machine when you need one.
 
-Not a shop — a register, the kind a teacher does. When a child walks in, their
-name appears on a list with a **tick box**, and you click the box to tick them
-in. The shop moves out to **its own room**.
-
-### They wander off
-
-Children should be able to walk into the other rooms on their own. If one gets
-into the **staff room** you have to carry it out, or **it breaks the coffee
-machine** and you have to buy a new one.
+**They wander.** A child with nothing to ask for toddles off through the
+doorways into any room it likes, and it keeps toddling for a few seconds after
+it starts wanting something before it settles down to stare at you. **The staff
+room is not for monsters.** One left in there long enough **breaks the coffee
+machine**, and until you buy a new one there is no tea — which is how you keep
+up with a building this size.
 
 ## Still to decide
 

@@ -3,6 +3,7 @@ import {
   ANOMALY,
   BABIES,
   BEDS,
+  COFFEE,
   DAY,
   DOORWAYS,
   LUNCH,
@@ -102,6 +103,7 @@ const FURNITURE = [
   PLACES.sums,
   PLACES.kettle,
   PLACES.register,
+  PLACES.shopCounter,
 ];
 
 /** Which room a point on the plan is in. Defaults to the playroom. */
@@ -122,8 +124,33 @@ function randomSpotIn(id: RoomId): { x: number; y: number } {
   };
 }
 
+/** Rooms a child might wander into on its own. Not the anomaly room. */
+const WANDERABLE: RoomId[] = ['play', 'play', 'play', 'music', 'maths', 'staff', 'shop'];
+
+/** The gap in the wall you have to go through to reach a room. */
+function doorwayInto(room: RoomId): { x: number; y: number } | null {
+  switch (room) {
+    case 'music':
+      return { x: DOORWAYS.music.x, y: (DOORWAYS.music.y0 + DOORWAYS.music.y1) / 2 };
+    case 'staff':
+      return { x: DOORWAYS.staff.x, y: (DOORWAYS.staff.y0 + DOORWAYS.staff.y1) / 2 };
+    case 'shop':
+      return { x: DOORWAYS.shop.x, y: (DOORWAYS.shop.y0 + DOORWAYS.shop.y1) / 2 };
+    case 'maths':
+      return { x: DOORWAYS.maths.x, y: (DOORWAYS.maths.y0 + DOORWAYS.maths.y1) / 2 };
+    case 'anomaly':
+      return { x: DOORWAYS.anomaly.x, y: (DOORWAYS.anomaly.y0 + DOORWAYS.anomaly.y1) / 2 };
+    default:
+      return null;
+  }
+}
+
 interface BabyEntity extends Baby {
   model: BabyModel;
+  /** Waypoints left to walk, so it goes through doorways and not through
+   *  walls. Every room opens off the playroom, so this is never more than
+   *  two corners and a destination. */
+  path: Array<{ x: number; y: number }>;
   bubble: THREE.Sprite | null;
   bubbleFor: string;
   nameTag: THREE.Sprite;
@@ -179,6 +206,7 @@ export class DaycareWorld {
   /** What you have bought at the register. */
   private upgrades: Upgrades = {
     shoes: 0,
+    coffeeMachine: true,
     sockDrawer: false,
     strongDoor: false,
     teapot: false,
@@ -362,6 +390,7 @@ export class DaycareWorld {
     this.teaMsLeft = 0;
     this.upgrades = {
       shoes: 0,
+      coffeeMachine: true,
       sockDrawer: false,
       strongDoor: false,
       teapot: false,
@@ -452,6 +481,8 @@ export class DaycareWorld {
       nextNeedMs: 5000 + Math.random() * 7000,
       drawingMs: 0,
       hasDrawing: false,
+      staffRoomMs: 0,
+      tickedIn: false,
       lunchSlot: null,
       asleep: false,
       bedIndex: null,
@@ -469,6 +500,7 @@ export class DaycareWorld {
       nameTag,
       glow,
       walkPhase: Math.random() * 6,
+      path: [],
       ritualForm: null,
       room,
     };
@@ -603,6 +635,8 @@ export class DaycareWorld {
         return PLACES.bucket;
       case 'register':
         return PLACES.register;
+      case 'shop':
+        return PLACES.shopCounter;
       case 'sockdrawer':
         return PLACES.sockDrawer;
       case 'instruments':
@@ -823,10 +857,20 @@ export class DaycareWorld {
       case 'kettle':
         return {
           title: 'The staff room',
-          subtitle: this.upgrades.teapot
-            ? 'A cup of tea makes you walk faster for a whole minute.'
-            : 'A cup of tea makes you walk faster for half a minute.',
-          actions: [{ id: 'take:tea', label: '☕  Make yourself a cup of tea' }],
+          subtitle: !this.upgrades.coffeeMachine
+            ? 'The coffee machine is in bits. There is a new one in the shop.'
+            : this.upgrades.teapot
+              ? 'A cup of tea makes you walk faster for a whole minute.'
+              : 'A cup of tea makes you walk faster for half a minute.',
+          actions: [
+            {
+              id: 'take:tea',
+              label: '☕  Make yourself a cup of tea',
+              disabledBecause: this.upgrades.coffeeMachine
+                ? undefined
+                : 'a monster broke the machine',
+            },
+          ],
         };
       case 'sockdrawer':
         return {
@@ -834,9 +878,23 @@ export class DaycareWorld {
           subtitle: 'Socks, right next to the room that needs them.',
           actions: [{ id: 'take:sock', label: '🧦  Take a sock' }],
         };
-      case 'register':
+      case 'register': {
+        const waiting = this.babies.filter((baby) => !baby.tickedIn);
         return {
           title: 'The register',
+          subtitle: waiting.length
+            ? `${waiting.length} still to tick in.`
+            : 'Everybody who has arrived is ticked in.',
+          actions: this.babies.map((baby) => ({
+            id: `tick:${baby.id}`,
+            label: baby.tickedIn ? `☑  ${baby.name}` : `☐  Tick in ${baby.name}`,
+            disabledBecause: baby.tickedIn ? 'already ticked in' : undefined,
+          })),
+        };
+      }
+      case 'shop':
+        return {
+          title: 'The shop',
           subtitle: `You have ${this.coins} coins.`,
           actions: this.shopActions(),
         };
@@ -873,7 +931,15 @@ export class DaycareWorld {
     const afford = (price: number): string | undefined =>
       this.coins >= price ? undefined : `costs ${price}, you have ${this.coins}`;
 
-    const actions: MenuAction[] = [
+    const actions: MenuAction[] = [];
+    if (!this.upgrades.coffeeMachine) {
+      actions.push({
+        id: 'buy:coffee',
+        label: `☕  A new coffee machine — ${COFFEE.price}`,
+        disabledBecause: afford(COFFEE.price),
+      });
+    }
+    actions.push(
       {
         id: 'buy:shoes',
         label: `👟  Comfy shoes — ${SHOP.shoesPrice} (you walk faster, for good)`,
@@ -906,7 +972,7 @@ export class DaycareWorld {
         label: `🧸  Nicer toys — ${SHOP.nicerToysPrice} (toys cheer them up more)`,
         disabledBecause: this.upgrades.nicerToys ? 'already bought' : afford(SHOP.nicerToysPrice),
       },
-    ];
+    );
     return actions;
   }
 
@@ -923,6 +989,12 @@ export class DaycareWorld {
     };
 
     switch (what) {
+      case 'coffee':
+        if (this.upgrades.coffeeMachine) return;
+        if (!spend(COFFEE.price)) return;
+        this.upgrades.coffeeMachine = true;
+        this.hint = 'A new coffee machine. Tea is back on.';
+        break;
       case 'shoes':
         if (this.upgrades.shoes >= SHOP.shoesMax) return;
         if (!spend(SHOP.shoesPrice)) return;
@@ -989,9 +1061,27 @@ export class DaycareWorld {
       return;
     }
 
+    if (actionId.startsWith('tick:')) {
+      const arrival = this.babyById(actionId.slice(5));
+      if (!arrival || arrival.tickedIn) return;
+      arrival.tickedIn = true;
+      this.coins += 5;
+      const left = this.babies.filter((baby) => !baby.tickedIn).length;
+      this.hint = left
+        ? `${arrival.name} is on the register. ${left} to go.`
+        : `${arrival.name} is on the register. Everybody is in.`;
+      music.coin();
+      return;
+    }
+
     if (actionId.startsWith('take:')) {
       const item = itemById(actionId.slice(5));
       if (item.kind === 'tea') {
+        if (!this.upgrades.coffeeMachine) {
+          this.hint = 'The coffee machine is broken. The shop sells a new one.';
+          music.buzz();
+          return;
+        }
         this.teaMsLeft = PLAYER.teaMs * (this.upgrades.teapot ? 2 : 1);
         this.hint = 'Tea. You can move a lot faster for the next half minute.';
         music.coin();
@@ -1208,6 +1298,38 @@ export class DaycareWorld {
       default:
         break;
     }
+  }
+
+  /**
+   * Send a wandering child somewhere new. Most of the time that is somewhere
+   * else in the playroom, but every so often it toddles off into another room
+   * entirely — through the doorway, not through the wall.
+   */
+  private wanderSomewhere(baby: BabyEntity): void {
+    // An anomaly stays in its room until it comes out of it properly.
+    if (baby.species.anomaly !== 'none') {
+      const spot = randomSpotIn('anomaly');
+      baby.path = [];
+      baby.wanderX = spot.x;
+      baby.wanderY = spot.y;
+      return;
+    }
+
+    const destination = WANDERABLE[Math.floor(Math.random() * WANDERABLE.length)];
+    const from = roomAt(baby.x, baby.y);
+    const points: Array<{ x: number; y: number }> = [];
+
+    const out = doorwayInto(from);
+    if (from !== destination && out) points.push(out);
+    const into = doorwayInto(destination);
+    if (from !== destination && into) points.push(into);
+    points.push(randomSpotIn(destination));
+
+    const first = points.shift();
+    if (!first) return;
+    baby.path = points;
+    baby.wanderX = first.x;
+    baby.wanderY = first.y;
   }
 
   /** Out of bed, back on its feet, delighted with everything. */
@@ -1493,6 +1615,15 @@ export class DaycareWorld {
 
   /** What a parent says once they have their child back. */
   private verdictFor(baby: BabyEntity): ParentVerdict {
+    // Never ticking a child in is its own kind of failure, whatever sort of
+    // day they had.
+    if (!baby.tickedIn) {
+      return {
+        babyName: baby.name,
+        happy: false,
+        said: 'You never even put them on the register.',
+      };
+    }
     const happy = baby.happiness >= DAY.happyParentThreshold;
     const delighted = baby.happiness >= 90;
 
@@ -1816,25 +1947,46 @@ export class DaycareWorld {
           baby.facing += (0 - baby.facing) * Math.min(1, dt * 5);
           baby.walkPhase += dt * 2;
         }
-      } else if (baby.need !== null) {
-        // A baby that wants something stops and looks at you, which is both
-        // how a real toddler behaves and the easiest way to read its face.
+      } else if (baby.need !== null && baby.needAgeMs > BABIES.settleAfterMs) {
+        // A baby that has been waiting a few seconds stops and looks at you,
+        // which is both how a real toddler behaves and the easiest way to read
+        // its face. Before that it carries on toddling about — otherwise they
+        // would spend the whole day rooted to the spot and never get into any
+        // of the rooms they are not supposed to be in.
         baby.facing += (0 - baby.facing) * Math.min(1, dt * 5);
         baby.walkPhase += dt * 2;
       } else {
         const toX = baby.wanderX - baby.x;
         const toY = baby.wanderY - baby.y;
         const distance = Math.hypot(toX, toY);
-        if (distance < 14) {
-          const spot = randomSpotIn(baby.room);
-          baby.wanderX = spot.x;
-          baby.wanderY = spot.y;
+        if (distance < 16) {
+          const next = baby.path.shift();
+          if (next) {
+            baby.wanderX = next.x;
+            baby.wanderY = next.y;
+          } else {
+            this.wanderSomewhere(baby);
+          }
         } else {
           baby.x += (toX / distance) * BABIES.speed * dt;
           baby.y += (toY / distance) * BABIES.speed * dt;
           baby.facing = Math.atan2(toX, toY);
           baby.walkPhase += dt * 7;
+          baby.room = roomAt(baby.x, baby.y);
         }
+      }
+
+      // The staff room is not for monsters. Left in there long enough and the
+      // coffee machine is finished.
+      if (baby.room === 'staff' && !baby.carried) {
+        baby.staffRoomMs += ms;
+        if (baby.staffRoomMs > BABIES.staffRoomGraceMs && this.upgrades.coffeeMachine) {
+          this.upgrades.coffeeMachine = false;
+          this.hint = `${baby.name} has broken the coffee machine. A new one is in the shop.`;
+          music.buzz();
+        }
+      } else {
+        baby.staffRoomMs = 0;
       }
     }
 
@@ -2193,6 +2345,7 @@ export class DaycareWorld {
       dayTimeLeftMs: Math.max(0, this.dayTimeLeftMs),
       playerRoom: ROOMS[roomAt(this.playerX, this.playerY)].name,
       lunchtime: this.lunchtime,
+      toTickIn: this.babies.filter((baby) => !baby.tickedIn).length,
       messCount: this.messes.length,
       holdingMop: this.holdingMop,
       holding: this.holding,
@@ -2208,6 +2361,7 @@ export class DaycareWorld {
           need: baby.need,
           wants: wanted ? { emoji: wanted.emoji, name: wanted.name } : null,
           hasDrawing: baby.hasDrawing,
+          tickedIn: baby.tickedIn,
           asleep: baby.asleep,
           wantsWaking: baby.wantsWaking,
           happiness: Math.round(baby.happiness),

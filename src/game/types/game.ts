@@ -93,6 +93,10 @@ export interface Baby {
   carried: boolean;
   /** Holding the player's hand, and following them about. */
   holdingHands: boolean;
+  /** How long it has been in the staff room, where it should not be. */
+  staffRoomMs: number;
+  /** Ticked off on the register when it arrived. */
+  tickedIn: boolean;
   /** Its place in the lunch queue, while lunch is on. */
   lunchSlot: number | null;
   /** Tucked up in bed, with Zs coming off it. */
@@ -126,6 +130,7 @@ export type TargetKind =
   | 'sums'
   | 'kettle'
   | 'register'
+  | 'shop'
   | 'sockdrawer';
 
 export interface ClickTarget {
@@ -153,6 +158,8 @@ export interface ParentVerdict {
 export interface Upgrades {
   shoes: number;
   sockDrawer: boolean;
+  /** False once a monster has got into the staff room and broken it. */
+  coffeeMachine: boolean;
   strongDoor: boolean;
   teapot: boolean;
   nicerToys: boolean;
@@ -172,6 +179,8 @@ export interface GameSnapshot {
   playerRoom: string;
   /** True while everybody is queuing for their lunch. */
   lunchtime: boolean;
+  /** Children who have arrived but are not on the register yet. */
+  toTickIn: number;
   /** Wrappers still on the floor. */
   messCount: number;
   /** True while you are holding the mop rather than an item. */
@@ -189,6 +198,7 @@ export interface GameSnapshot {
     /** What it is asking for, already turned into words and a picture. */
     wants: { emoji: string; name: string } | null;
     hasDrawing: boolean;
+    tickedIn: boolean;
     asleep: boolean;
     wantsWaking: boolean;
     happiness: number;
