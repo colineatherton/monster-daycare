@@ -1,0 +1,217 @@
+import * as THREE from 'three';
+import { ball, box, cyl, mat, torus } from './three-helpers.ts';
+import { PALETTE } from './palette.ts';
+
+/**
+ * The two skins Wren drew: the Teacher (long hair, glasses, a heart on her top)
+ * and the Robot (a slab head on a springy segmented neck).
+ */
+
+export type SkinId = 'teacher' | 'robot';
+
+export interface PlayerModel {
+  root: THREE.Group;
+  /** Turns to face where you are walking. */
+  body: THREE.Group;
+  /** Whatever you are carrying is parented here. */
+  hands: THREE.Group;
+  legs: THREE.Object3D[];
+}
+
+function teacher(): { body: THREE.Group; hands: THREE.Group; legs: THREE.Object3D[] } {
+  const body = new THREE.Group();
+  const legs: THREE.Object3D[] = [];
+
+  const torso = box(0.42, 0.5, 0.26, PALETTE.teacherTop);
+  torso.position.y = 0.72;
+  body.add(torso);
+
+  // The heart on her top.
+  for (const [dx, dy] of [[-0.045, 0.78], [0.045, 0.78]] as const) {
+    const lobe = ball(0.045, 0xff4d79);
+    lobe.scale.z = 0.4;
+    lobe.position.set(dx, dy, 0.13);
+    body.add(lobe);
+  }
+  const heartTip = new THREE.Mesh(new THREE.ConeGeometry(0.062, 0.09, 4), mat(0xff4d79));
+  heartTip.rotation.x = Math.PI;
+  heartTip.rotation.y = Math.PI / 4;
+  heartTip.scale.z = 0.4;
+  heartTip.position.set(0, 0.715, 0.13);
+  body.add(heartTip);
+
+  const head = ball(0.21, PALETTE.teacherSkin);
+  head.position.y = 1.14;
+  body.add(head);
+
+  // Long hair: a back slab and two side curtains.
+  const back = box(0.4, 0.46, 0.14, PALETTE.teacherHair);
+  back.position.set(0, 1.02, -0.13);
+  body.add(back);
+  for (const side of [-1, 1]) {
+    const curtain = box(0.09, 0.42, 0.22, PALETTE.teacherHair);
+    curtain.position.set(side * 0.19, 1.04, -0.01);
+    body.add(curtain);
+  }
+  const fringe = box(0.36, 0.1, 0.1, PALETTE.teacherHair);
+  fringe.position.set(0, 1.26, 0.15);
+  body.add(fringe);
+
+  // Glasses.
+  for (const side of [-1, 1]) {
+    const lens = torus(0.055, 0.012, 0x3a3a44);
+    lens.position.set(side * 0.08, 1.13, 0.2);
+    body.add(lens);
+  }
+
+  for (const side of [-1, 1]) {
+    const upper = cyl(0.05, 0.05, 0.34, PALETTE.teacherSkin);
+    upper.position.set(side * 0.26, 0.76, 0);
+    body.add(upper);
+  }
+
+  for (const side of [-1, 1]) {
+    const legGroup = new THREE.Group();
+    const limb = cyl(0.06, 0.06, 0.46, 0x3f4a63);
+    limb.position.y = -0.23;
+    legGroup.add(limb);
+    const shoe = box(0.13, 0.08, 0.2, 0x2b2b33);
+    shoe.position.set(0, -0.46, 0.03);
+    legGroup.add(shoe);
+    legGroup.position.set(side * 0.11, 0.48, 0);
+    body.add(legGroup);
+    legs.push(legGroup);
+  }
+
+  const hands = new THREE.Group();
+  hands.position.set(0, 0.78, 0.3);
+  body.add(hands);
+
+  return { body, hands, legs };
+}
+
+function robot(): { body: THREE.Group; hands: THREE.Group; legs: THREE.Object3D[] } {
+  const body = new THREE.Group();
+  const legs: THREE.Object3D[] = [];
+
+  const torso = box(0.5, 0.46, 0.3, PALETTE.robotBody);
+  torso.position.y = 0.7;
+  body.add(torso);
+  for (const y of [0.62, 0.74]) {
+    const ridge = box(0.36, 0.03, 0.02, PALETTE.robotTrim);
+    ridge.position.set(0, y, 0.155);
+    body.add(ridge);
+  }
+
+  // The springy segmented neck from the drawing.
+  for (let i = 0; i < 4; i += 1) {
+    const segment = cyl(0.07, 0.07, 0.06, PALETTE.robotTrim);
+    segment.position.y = 0.98 + i * 0.075;
+    body.add(segment);
+  }
+
+  const head = box(0.46, 0.34, 0.28, PALETTE.robotBody);
+  head.position.y = 1.42;
+  body.add(head);
+  for (const y of [1.36, 1.46]) {
+    const ridge = box(0.3, 0.03, 0.02, PALETTE.robotTrim);
+    ridge.position.set(0, y, 0.145);
+    body.add(ridge);
+  }
+  for (const side of [-1, 1]) {
+    const eye = ball(0.04, 0x6ef0ff, { emissive: 0x2bd5e8, emissiveIntensity: 1.1 });
+    eye.position.set(side * 0.1, 1.45, 0.15);
+    body.add(eye);
+  }
+
+  for (const side of [-1, 1]) {
+    const upper = box(0.09, 0.34, 0.09, PALETTE.robotTrim);
+    upper.position.set(side * 0.3, 0.74, 0);
+    body.add(upper);
+  }
+
+  for (const side of [-1, 1]) {
+    const legGroup = new THREE.Group();
+    const limb = box(0.11, 0.44, 0.11, PALETTE.robotTrim);
+    limb.position.y = -0.22;
+    legGroup.add(limb);
+    const foot = box(0.16, 0.08, 0.22, PALETTE.robotBody);
+    foot.position.set(0, -0.45, 0.03);
+    legGroup.add(foot);
+    legGroup.position.set(side * 0.13, 0.47, 0);
+    body.add(legGroup);
+    legs.push(legGroup);
+  }
+
+  const hands = new THREE.Group();
+  hands.position.set(0, 0.76, 0.32);
+  body.add(hands);
+
+  return { body, hands, legs };
+}
+
+export function buildPlayer(skin: SkinId): PlayerModel {
+  const built = skin === 'robot' ? robot() : teacher();
+  const root = new THREE.Group();
+  root.add(built.body);
+  return { root, body: built.body, hands: built.hands, legs: built.legs };
+}
+
+/**
+ * The parents. Much bigger than the babies — that was the point. Two of them,
+ * matching the drawing: a shaggy spiky one and a big smiley blob.
+ */
+export function buildParent(kind: 'shaggy' | 'blob', colour: number): THREE.Group {
+  const group = new THREE.Group();
+
+  if (kind === 'shaggy') {
+    const core = ball(0.6, colour);
+    core.scale.set(1, 1.2, 1);
+    core.position.y = 1.1;
+    group.add(core);
+    // Spikes everywhere, which is how the scribble in the drawing reads.
+    for (let i = 0; i < 44; i += 1) {
+      const angle = (i / 44) * Math.PI * 2 * 3.1;
+      const lift = (i / 44) * 1.2 - 0.3;
+      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.42, 5), mat(colour));
+      const radius = 0.52;
+      spike.position.set(Math.cos(angle) * radius, 1.1 + lift * 0.6, Math.sin(angle) * radius);
+      spike.lookAt(spike.position.clone().multiplyScalar(2).setY(spike.position.y + lift));
+      spike.rotateX(Math.PI / 2);
+      group.add(spike);
+    }
+  } else {
+    const core = ball(0.68, colour);
+    core.scale.set(1.1, 1.15, 0.95);
+    core.position.y = 1.05;
+    group.add(core);
+    const lump = ball(0.3, colour);
+    lump.position.set(0.4, 1.5, 0);
+    group.add(lump);
+  }
+
+  for (const side of [-1, 1]) {
+    const eye = ball(0.075, PALETTE.pupil);
+    eye.scale.set(0.7, 1.3, 0.6);
+    eye.position.set(side * 0.19, 1.22, 0.6);
+    group.add(eye);
+  }
+  const smile = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.028, 8, 20, Math.PI), mat(PALETTE.mouth));
+  smile.rotation.z = Math.PI;
+  smile.position.set(0, 0.98, 0.58);
+  group.add(smile);
+
+  for (const side of [-1, 1]) {
+    const limb = cyl(0.025, 0.025, 0.4, colour);
+    limb.position.set(side * 0.72, 1.0, 0.1);
+    limb.rotation.z = side * 0.9;
+    group.add(limb);
+  }
+  for (const side of [-1, 1]) {
+    const limb = cyl(0.03, 0.03, 0.42, colour);
+    limb.position.set(side * 0.22, 0.22, 0);
+    group.add(limb);
+  }
+
+  return group;
+}
