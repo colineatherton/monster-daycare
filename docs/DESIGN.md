@@ -163,6 +163,53 @@ well enough to be *annoyed* at being interrupted.
 `?day=3` on the end of the address opens straight onto the first day with an anomaly in
 it, so you do not have to play two quiet days every time you want to test the scary part.
 
+## Wren's next list
+
+Straight from playtesting, in her words as far as possible. Nothing here is
+built yet.
+
+### The day gets a shape
+
+At the moment the children want food at any moment of the day, which is wrong.
+A day should go:
+
+1. **Morning.** Children arrive. **The register** — see below — has to be done.
+2. **Lunchtime**, in the middle of the day. Nobody is hungry before it. When it
+   comes, **they all line up for their food** and you serve them.
+3. **After lunch** they drop their wrappers on the floor, and **you mop it up**.
+   The mop and bucket are already in the corner of the playroom doing nothing.
+4. **Nap time.** See the beds, below.
+5. **Home time**, which already works.
+
+### The register is an actual register
+
+Not a shop — a register, the kind a teacher does. When a child walks in, their
+name appears on a list with a **tick box**, and you click the box to tick them
+in. The shop moves out to **its own room**.
+
+### Beds, properly
+
+A sleepy child should not be handed a blanket where it stands. You **pick it
+up**, carry it to a bed, and choose **"Place in bed"** — and it actually gets
+into the bed. While it is asleep it has **Zs coming out of it**. To wake it up
+again you give it a **dummy**.
+
+Because the blankets are spoken for, **a parent whose child is missing gets a
+sock** instead of a blanket.
+
+### They wander off
+
+Children should be able to walk into the other rooms on their own. If one gets
+into the **staff room** you have to carry it out, or **it breaks the coffee
+machine** and you have to buy a new one.
+
+### How it all hangs together
+
+Most of this is one idea: the day stops being a flat stretch of "somebody wants
+something" and gets a shape, with a rush at lunchtime, a mess afterwards, and a
+quiet bit at nap time. The register at the start and home time at the end
+already bookend it. That is a much better day than the one in the game now.
+
 ## Still to decide
 
 - What is the daycare *for*? Is there a shop — better cots, a bigger fridge, a stronger
