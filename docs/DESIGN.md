@@ -28,7 +28,9 @@ That switch is the game. Everything below exists to make that switch land.
 3. **Click and choose.** Click a monster and a little menu opens: pick it up, hold its
    hand, give it a cuddle, or hand over whatever you are carrying. Choose one and you walk
    over and do it.
-4. **Home time.** The parents come back. Happy baby, happy parent, you get paid.
+4. **Home time.** The parents come back, one by one, and each one says whether
+   they are pleased. A happy child gets you a thank-you and fifteen coins; a
+   miserable one gets you told off.
 5. **Next day.** More babies. More anomalies.
 
 ## How you actually play it
@@ -39,13 +41,15 @@ also walk yourself with the keys, and walking cancels whatever the menu set goin
 
 **The menu on a baby:**
 
+- Take their drawing (only once they have finished one)
 - Give it *whatever you are carrying* (only when your hands are full)
 - Give it a cuddle
 - Hold its hand (it follows you around until you let go)
 - Pick it up / Put it down
 
 **The menu on the furniture:** the fridge has five foods and two drinks, the toy box has
-three toys, the nap corner has blankets. You carry one thing at a time.
+three toys, the nap corner has blankets, and the colouring table has the crayons. You
+carry one thing at a time.
 
 ## What baby monsters need
 
@@ -56,16 +60,24 @@ three toys, the nap corner has blankets. You carry one thing at a time.
 | 😴 Sleepy | a blanket | the nap corner |
 | 🧸 Bored | a toy | the toy box |
 | 😢 Sad | a cuddle — no object, just get there | you |
+| 🖍️ Wants to draw | the crayons | the colouring table |
 
-**Fussy eaters.** Not every baby eats the same thing. Nibbles only eats socks. Pudding
-only eats sweet things. Give a baby the wrong food and it gets *crosser*, not happier.
+**They ask for one particular thing.** A hungry baby does not want "food", it wants
+*crisps*, and the bubble over its head is a picture of crisps while the list down the side
+says so in words. Bring it anything else and it gets *crosser*, not happier. You are never
+guessing.
 
-This works the same way ingredients work in Wren's Kitchen: every item carries little
-labels, every fussy baby wants one particular label, and the game just checks whether they
-match. It means every new food we invent works with every monster for free.
+**Fussy eaters.** Nibbles only ever asks for socks. Pudding only ever asks for sweet
+things. This works the same way ingredients work in Wren's Kitchen: every item carries
+little labels, and a fussy baby only picks from the ones wearing its label. A new food we
+invent works with every monster for free.
 
 Fussiness is about food only. A baby that could never be given a drink it liked would just
 be a dead end.
+
+**Drawing.** Give the crayons to a baby that wants to draw and it settles down and
+colours for a while. Then it has a picture, and a new option appears on its menu: **take
+their drawing**. It is worth coins, and they love you for it.
 
 ## Anomalies
 
@@ -89,8 +101,16 @@ Looks like a sweet square monster with antennae, until you notice the **teeth st
 out** — a mouth far too full of them, and two long fangs at the corners.
 
 If you are late: it breaks the door down, but it does *not* eat anybody. It **floats up
-into the air and performs a ritual**, and it turns into the spiky triangle from the
-drawing. Everyone has to go home. The run is over.
+into the air and performs a ritual**, turning into the spiky triangle from the drawing,
+rising higher and spinning as it goes.
+
+**And the ritual can be stopped.** What it actually wants is its nappy changing. A second
+countdown starts — twenty-five seconds — and the only thing on its menu is *change its
+nappy*. Do it and the ritual stops, it comes back down, it is perfectly happy, and you get
+sixty coins. Miss that one too and the run is over.
+
+So the toothy one is a second chance and the shadow one is not, which is the right way
+round: the shadow one is the real threat.
 
 ### The one minute rule
 
@@ -124,6 +144,10 @@ You pick a skin on the front screen, both from Wren's character sheet:
 
 You also name your own daycare, and the name you type sits in the corner all game.
 
+There is music — a little synthesised loop with no sound files behind it — plus a chime
+when you get something right, a buzz when you do not, and a heartbeat that gets faster as
+an anomaly's fuse burns down. The button at the top turns it all off.
+
 ## How a day goes
 
 | | |
@@ -142,12 +166,11 @@ it, so you do not have to play two quiet days every time you want to test the sc
 ## Still to decide
 
 - What is the daycare *for*? Is there a shop — better cots, a bigger fridge, a stronger
-  door?
+  door? Somewhere to put all the drawings up on the wall?
 - Messes and the mop. The bucket is in the corner of the room already, waiting.
-- Do the parents get a proper home-time scene where they judge you?
 - More monsters. Every new one is free content, so this is the best thing to add.
 - Does the game ever end, or does it just get harder until it eats you?
-- Sound. There is none yet.
+- Should the parents turn up at the door at home time rather than only in the card?
 
 ## How it is built
 
@@ -162,6 +185,10 @@ lines of code.
 3. ~~The rest of the needs, and thought bubbles~~ ✅
 4. ~~Parents dropping babies off, and a day that ends~~ ✅
 5. ~~Anomalies: the tells, the timer, the darkening room~~ ✅
-6. **Fussy eaters** ✅ — and now as many monsters as we can think of.
+6. ~~Fussy eaters~~ ✅
+7. ~~Naming exactly what they want, the colouring table, taking their drawings~~ ✅
+8. ~~Parents giving a verdict at home time~~ ✅
+9. ~~Music, and a button to turn it off~~ ✅
+10. ~~The ritual, and changing its nappy to stop it~~ ✅
 
-Next: messes and the mop, a shop to spend coins in, and sound.
+Next: messes and the mop, a shop to spend coins in, and more monsters.

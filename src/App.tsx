@@ -24,7 +24,9 @@ export default function App() {
           <h1>Monster Daycare</h1>
           <p className="title__blurb">
             Monster parents drop their babies off in the morning. Feed them, play with them,
-            cuddle them, get them down for a nap.
+            cuddle them, get them down for a nap, sit them at the table with the crayons. They
+            tell you exactly what they want — fetch that one thing. At home time the parents
+            come back and say how it went.
             <br />
             <strong>Some of them are anomalies.</strong> You will know — one has teeth sticking
             out and one has a shadow that is the wrong shape entirely. Look after them like
@@ -64,7 +66,8 @@ export default function App() {
 
           <p className="title__controls">
             Walk with <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> or the arrow keys.
-            Click a monster, the fridge, the toy box or the cots to see what you can do.
+            Click a monster, the fridge, the toy box, the cots or the colouring table to see
+            what you can do. There is music — the button at the top turns it off.
           </p>
         </div>
       </div>

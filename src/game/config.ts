@@ -42,6 +42,10 @@ export const BABIES = {
   needMetReward: 22,
   /** Being given the wrong thing. Crosser, not happier. */
   wrongThingPenalty: 10,
+  /** How long a baby colours for before its drawing is finished. */
+  drawingMs: 14_000,
+  /** Taking a drawing is worth this, and they love you for it. */
+  drawingCoins: 12,
 } as const;
 
 export const ANOMALY = {
@@ -56,6 +60,12 @@ export const ANOMALY = {
   panicAtMs: 20_000,
   /** Anomalies pay better than ordinary babies. Being frightened is work. */
   payMultiplier: 3,
+  /**
+   * Once a ritual anomaly is up in the air, this is how long you have to get
+   * over there and change its nappy. The ritual is survivable; the other one
+   * is not.
+   */
+  ritualMs: 25_000,
 } as const;
 
 export const DAY = {
@@ -71,6 +81,7 @@ export const PLACES = {
   fridge: { x: 135, y: 175, w: 140, h: 110 },
   toybox: { x: 865, y: 175, w: 140, h: 110 },
   cots: { x: 150, y: 545, w: 210, h: 130 },
+  table: { x: 500, y: 585, w: 180, h: 100 },
   bucket: { x: 890, y: 560, w: 100, h: 100 },
-  rug: { x: 500, y: 360, w: 380, h: 260 },
+  rug: { x: 500, y: 340, w: 380, h: 240 },
 } as const;

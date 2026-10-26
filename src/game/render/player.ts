@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ball, box, cyl, mat, torus } from './three-helpers.ts';
+import { ball, box, cyl, dome, mat, torus } from './three-helpers.ts';
 import { PALETTE } from './palette.ts';
 
 /**
@@ -44,17 +44,33 @@ function teacher(): { body: THREE.Group; hands: THREE.Group; legs: THREE.Object3
   head.position.y = 1.14;
   body.add(head);
 
+  // Hair. The camera looks down on her, so the top of the head is the part you
+  // see most — it gets a proper cap of hair, not just a fringe and curtains.
+  // The dome has to sit comfortably outside the skull at every point, or the
+  // crown pokes through it and she looks like she is going bald.
+  const cap = dome(0.238, PALETTE.teacherHair);
+  cap.position.y = 1.095;
+  cap.scale.set(1.02, 1.32, 1.08);
+  body.add(cap);
+
+  // And a band around the back and sides at the same height, so there is no
+  // seam between the cap and the long hair.
+  const band = ball(0.228, PALETTE.teacherHair);
+  band.scale.set(1.02, 0.8, 1.06);
+  band.position.set(0, 1.1, -0.045);
+  body.add(band);
+
   // Long hair: a back slab and two side curtains.
-  const back = box(0.4, 0.46, 0.14, PALETTE.teacherHair);
+  const back = box(0.4, 0.46, 0.16, PALETTE.teacherHair);
   back.position.set(0, 1.02, -0.13);
   body.add(back);
   for (const side of [-1, 1]) {
-    const curtain = box(0.09, 0.42, 0.22, PALETTE.teacherHair);
+    const curtain = box(0.1, 0.46, 0.24, PALETTE.teacherHair);
     curtain.position.set(side * 0.19, 1.04, -0.01);
     body.add(curtain);
   }
-  const fringe = box(0.36, 0.1, 0.1, PALETTE.teacherHair);
-  fringe.position.set(0, 1.26, 0.15);
+  const fringe = box(0.38, 0.12, 0.12, PALETTE.teacherHair);
+  fringe.position.set(0, 1.26, 0.14);
   body.add(fringe);
 
   // Glasses.

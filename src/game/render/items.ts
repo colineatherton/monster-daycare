@@ -25,6 +25,18 @@ export function buildItem(item: Item): THREE.Group {
       group.add(fold);
       break;
     }
+    case 'crayons': {
+      const pot = cyl(0.08, 0.07, 0.12, 0xffffff);
+      pot.position.y = 0.06;
+      group.add(pot);
+      [0xff5a5a, 0x4aa8ff, 0x6bd36b, 0xffd166].forEach((colour, index) => {
+        const crayon = cyl(0.015, 0.015, 0.18, colour);
+        crayon.position.set((index - 1.5) * 0.026, 0.16, 0);
+        crayon.rotation.z = (index - 1.5) * 0.12;
+        group.add(crayon);
+      });
+      break;
+    }
     case 'toy': {
       if (item.id === 'teddy') {
         const bodyMesh = ball(0.1, item.colour);

@@ -30,6 +30,16 @@
   color: #fff;
 }
 
+.pill--holding {
+  background: #fff3c4;
+}
+
+.pill--button {
+  pointer-events: auto;
+  cursor: pointer;
+  font-family: inherit;
+}
+
 .hud__hint {
   position: absolute;
   bottom: 14px;
@@ -146,6 +156,11 @@
   animation: fuse-pulse 0.35s infinite;
 }
 
+.fuse--ritual {
+  background: #7c2bd6;
+  border-color: #2d0050;
+}
+
 @keyframes fuse-pulse {
   0%,
   100% {
@@ -179,6 +194,15 @@
 .roster__row--anomaly {
   border-color: #7a0000;
   background: #ffe3e3;
+}
+
+.roster__name {
+  font-weight: 800;
+}
+
+.roster__want {
+  font-size: 12px;
+  opacity: 0.8;
 }
 
 .roster__bar {
@@ -243,4 +267,36 @@
 .big-button:active {
   transform: translateY(3px);
   box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+}
+
+/* -------------------------------------------------- home time */
+
+.verdicts {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+  text-align: left;
+}
+
+.verdict {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  background: #eaffef;
+  border: 3px solid var(--ink);
+  border-radius: 12px;
+  padding: 8px 12px;
+}
+
+.verdict--cross {
+  background: #ffe9e9;
+}
+
+.verdict__face {
+  font-size: 28px;
+}
+
+.verdict__said {
+  font-size: 14px;
+  opacity: 0.8;
 }

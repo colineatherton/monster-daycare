@@ -1,15 +1,14 @@
 /** The vocabulary of the whole game, in one page. */
 
 /** What a baby monster can want. */
-export type NeedKind = 'hungry' | 'thirsty' | 'sleepy' | 'bored' | 'sad';
+export type NeedKind = 'hungry' | 'thirsty' | 'sleepy' | 'bored' | 'sad' | 'arty';
 
 /** What you can be holding. */
-export type ItemKind = 'food' | 'drink' | 'toy' | 'blanket';
+export type ItemKind = 'food' | 'drink' | 'toy' | 'blanket' | 'crayons';
 
 /**
- * Labels carried by food and wanted by babies. One monster only eats socks,
- * another only eats blue things — this is how that works, and it means a new
- * food works with every monster for free.
+ * Labels carried by food. A fussy monster only ever asks for food wearing its
+ * one label, which is how "she only eats socks" works without a special case.
  */
 export type Tag = 'sweet' | 'squishy' | 'crunchy' | 'blue' | 'sock' | 'slimy' | 'warm';
 
@@ -17,6 +16,8 @@ export interface Item {
   id: string;
   kind: ItemKind;
   name: string;
+  /** Shown in the baby's thought bubble, so you know exactly what to fetch. */
+  emoji: string;
   tags: Tag[];
   colour: number;
 }
@@ -36,7 +37,7 @@ export interface Species {
   shape: BodyShape;
   colour: number;
   anomaly: AnomalyKind;
-  /** Food must carry this label, or the baby gets crosser. Null means anything. */
+  /** Only ever asks for food carrying this label. Null means anything goes. */
   fussyAbout: Tag | null;
 }
 
@@ -51,21 +52,29 @@ export interface Baby {
   wanderY: number;
   facing: number;
   need: NeedKind | null;
+  /** The exact thing it is asking for, so the bubble can name it. */
+  wantedItemId: string | null;
   /** Milliseconds this need has been waiting. */
   needAgeMs: number;
   /** Counts down to the next need appearing. */
   nextNeedMs: number;
+  /** Counts down while it is colouring, before the drawing is finished. */
+  drawingMs: number;
+  /** It has finished a picture and wants you to have it. */
+  hasDrawing: boolean;
   happiness: number;
   /** Being carried by the player. */
   carried: boolean;
   /** Holding the player's hand, and following them about. */
   holdingHands: boolean;
-  /** Set once an anomaly's fuse has burnt all the way down. */
+  /** A ritual anomaly whose fuse ran out: up in the air, nappy unchanged. */
   erupted: boolean;
+  /** How long you have left to change its nappy and end the ritual. */
+  ritualMsLeft: number;
 }
 
 /** A thing you can click on in the room. */
-export type TargetKind = 'baby' | 'fridge' | 'toybox' | 'cots' | 'bucket';
+export type TargetKind = 'baby' | 'fridge' | 'toybox' | 'cots' | 'table' | 'bucket';
 
 export interface ClickTarget {
   kind: TargetKind;
@@ -81,6 +90,14 @@ export interface MenuAction {
   disabledBecause?: string;
 }
 
+/** One parent's verdict at home time. */
+export interface ParentVerdict {
+  babyName: string;
+  speciesName: string;
+  happy: boolean;
+  said: string;
+}
+
 /** What the renderer hands to React every frame. */
 export interface GameSnapshot {
   daycareName: string;
@@ -93,13 +110,19 @@ export interface GameSnapshot {
     name: string;
     speciesName: string;
     need: NeedKind | null;
+    /** What it is asking for, already turned into words and a picture. */
+    wants: { emoji: string; name: string } | null;
+    hasDrawing: boolean;
     happiness: number;
     carried: boolean;
     holdingHands: boolean;
     isAnomaly: boolean;
+    erupted: boolean;
     /** Milliseconds until it comes through the door. Null unless it is an
      *  anomaly with an unmet need. */
     fuseLeftMs: number | null;
+    /** Milliseconds left to change its nappy, once the ritual has started. */
+    ritualMsLeft: number | null;
   }>;
   /** The open menu, positioned in screen pixels by the renderer. */
   menu: {
@@ -109,7 +132,14 @@ export interface GameSnapshot {
     screenX: number;
     screenY: number;
   } | null;
+  /** Home time: what every parent said. Non-null pauses the game. */
+  dayReport: {
+    dayNumber: number;
+    verdicts: ParentVerdict[];
+    earned: number;
+  } | null;
   /** Non-null once the run is over. */
   gameOver: { reason: string; detail: string } | null;
+  musicOn: boolean;
   hint: string;
 }

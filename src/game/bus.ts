@@ -29,6 +29,9 @@ export interface Commands {
   chooseMenuAction: (actionId: string) => void;
   closeMenu: () => void;
   restart: () => void;
+  /** Dismiss the home-time card and open up again tomorrow. */
+  nextDay: () => void;
+  toggleMusic: () => void;
 }
 
 export const commands: { current: Commands | null } = { current: null };

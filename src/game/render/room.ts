@@ -159,6 +159,62 @@ export function buildRoom(): RoomModel {
   }
   root.add(cots);
 
+  /* ------------------------------------------------- the colouring table */
+
+  const table = furnitureBase(PLACES.table);
+  const top = box(ku(PLACES.table.w), 0.08, ku(PLACES.table.h), PALETTE.tableTop);
+  top.position.y = 0.46;
+  top.castShadow = true;
+  top.userData.target = { kind: 'table' };
+  table.add(top);
+  clickable.push(top);
+
+  for (const dx of [-1, 1]) {
+    for (const dz of [-1, 1]) {
+      const legMesh = cyl(0.035, 0.035, 0.46, PALETTE.tableLeg);
+      legMesh.position.set(
+        dx * (ku(PLACES.table.w) / 2 - 0.1),
+        0.23,
+        dz * (ku(PLACES.table.h) / 2 - 0.1),
+      );
+      table.add(legMesh);
+    }
+  }
+
+  // A pot of crayons and a sheet of paper, so it reads as the drawing table.
+  const pot = cyl(0.09, 0.08, 0.14, 0xffffff);
+  pot.position.set(-0.3, 0.57, 0);
+  table.add(pot);
+  const crayonColours = [0xff5a5a, 0x4aa8ff, 0x6bd36b, 0xffd166, 0xb77cff];
+  crayonColours.forEach((colour, index) => {
+    const crayon = cyl(0.016, 0.016, 0.2, colour);
+    crayon.position.set(-0.3 + (index - 2) * 0.028, 0.66, (index % 2) * 0.02);
+    crayon.rotation.z = (index - 2) * 0.1;
+    table.add(crayon);
+  });
+
+  const paper = box(0.3, 0.012, 0.22, 0xffffff);
+  paper.position.set(0.22, 0.51, 0);
+  paper.rotation.y = 0.2;
+  table.add(paper);
+  for (const [dx, dz, colour] of [
+    [0.18, -0.04, 0xff5a5a],
+    [0.26, 0.04, 0x4aa8ff],
+  ] as const) {
+    const scribble = box(0.07, 0.004, 0.05, colour);
+    scribble.position.set(dx, 0.518, dz);
+    table.add(scribble);
+  }
+
+  // Two little stools at the ends, where they stay on screen.
+  for (const dx of [-1, 1]) {
+    const stool = cyl(0.11, 0.11, 0.26, PALETTE.stool);
+    stool.position.set(dx * (ku(PLACES.table.w) / 2 + 0.26), 0.13, 0);
+    stool.castShadow = true;
+    table.add(stool);
+  }
+  root.add(table);
+
   /* ----------------------------------------------------------- the bucket */
 
   const bucket = furnitureBase(PLACES.bucket);

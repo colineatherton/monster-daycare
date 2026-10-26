@@ -6,10 +6,11 @@ import { buildBaby, buildRitualForm, type BabyModel } from './render/monsters.ts
 import { buildParent, buildPlayer, type SkinId } from './render/player.ts';
 import { buildItem, buildDreadGlow } from './render/items.ts';
 import { thoughtBubble, textLabel } from './render/labels.ts';
-import { ITEMS, itemById } from './data/items.ts';
+import { ITEMS, itemById, itemsOfKind } from './data/items.ts';
 import { BABY_NAMES, SPECIES } from './data/species.ts';
 import { attachInput, walkVector } from './input.ts';
 import { publish, commands } from './bus.ts';
+import { music } from './audio/music.ts';
 import type {
   Baby,
   ClickTarget,
@@ -17,6 +18,7 @@ import type {
   Item,
   MenuAction,
   NeedKind,
+  ParentVerdict,
   Species,
 } from './types/game.ts';
 
@@ -30,12 +32,14 @@ import type {
  * happens on its own in `step()`.
  */
 
+/** Only used when the need is not about a particular object. */
 const NEED_EMOJI: Record<NeedKind, string> = {
   hungry: '🍽️',
   thirsty: '🍼',
   sleepy: '😴',
   bored: '🧸',
   sad: '😢',
+  arty: '🖍️',
 };
 
 const NEED_WORD: Record<NeedKind, string> = {
@@ -44,13 +48,24 @@ const NEED_WORD: Record<NeedKind, string> = {
   sleepy: 'sleepy',
   bored: 'bored',
   sad: 'sad',
+  arty: 'wants to draw',
+};
+
+/** Which kind of thing answers each need. `sad` is answered by a cuddle. */
+const NEED_ITEM_KIND: Record<NeedKind, Item['kind'] | null> = {
+  hungry: 'food',
+  thirsty: 'drink',
+  sleepy: 'blanket',
+  bored: 'toy',
+  sad: null,
+  arty: 'crayons',
 };
 
 /** Where the camera sits on a wide screen; `resize` backs it off on narrow ones. */
 const CAMERA_HOME = new THREE.Vector3(0, 9.0, 8.4);
 
 /** Blocks the player walks into. Room units. */
-const OBSTACLES = [PLACES.fridge, PLACES.toybox, PLACES.cots, PLACES.bucket];
+const OBSTACLES = [PLACES.fridge, PLACES.toybox, PLACES.cots, PLACES.table, PLACES.bucket];
 
 interface BabyEntity extends Baby {
   model: BabyModel;
@@ -59,6 +74,8 @@ interface BabyEntity extends Baby {
   nameTag: THREE.Sprite;
   glow: THREE.Mesh;
   walkPhase: number;
+  /** The spiky triangle it becomes while the ritual is going on. */
+  ritualForm: THREE.Group | null;
 }
 
 export class DaycareWorld {
@@ -83,6 +100,8 @@ export class DaycareWorld {
 
   private babies: BabyEntity[] = [];
   private nextBabyId = 1;
+  /** Drawings you have been given. Kept for the pure joy of a rising number. */
+  private drawings = 0;
   /** Parents hang about by the door for a moment after dropping a baby off. */
   private parents: Array<{ group: THREE.Group; y: number; waitMs: number }> = [];
 
@@ -95,7 +114,12 @@ export class DaycareWorld {
 
   private menuTarget: ClickTarget | null = null;
   private pending: { target: ClickTarget; actionId: string } | null = null;
+  /** Home time. While this is set the game is paused and the card is up. */
+  private dayReport: { dayNumber: number; verdicts: ParentVerdict[]; earned: number } | null = null;
   private gameOver: { reason: string; detail: string } | null = null;
+  private musicOn = true;
+  /** So the heartbeat thuds once a second rather than once a frame. */
+  private lastHeartbeatAt = 0;
   private hint = 'Click a monster, or click the fridge to get some food.';
 
   private disposeInput: () => void;
@@ -151,7 +175,19 @@ export class DaycareWorld {
         this.menuTarget = null;
       },
       restart: () => this.restart(),
+      nextDay: () => {
+        if (!this.dayReport) return;
+        this.startDay(this.dayReport.dayNumber + 1);
+        this.dayReport = null;
+      },
+      toggleMusic: () => {
+        this.musicOn = !this.musicOn;
+        music.setMuted(!this.musicOn);
+      },
     };
+
+    music.setMuted(!this.musicOn);
+    music.start();
 
     canvas.addEventListener('pointerdown', this.onPointerDown);
     this.canvas = canvas;
@@ -218,6 +254,8 @@ export class DaycareWorld {
     this.playerY = PLAYER.spawnY;
     this.menuTarget = null;
     this.pending = null;
+    this.dayReport = null;
+    this.drawings = 0;
     this.startDay(this.firstDay);
   }
 
@@ -227,6 +265,7 @@ export class DaycareWorld {
     window.removeEventListener('resize', this.resize);
     this.canvas.removeEventListener('pointerdown', this.onPointerDown);
     this.disposeInput();
+    music.stop();
     commands.current = null;
     disposeSubtree(this.scene);
     this.renderer.dispose();
@@ -287,18 +326,23 @@ export class DaycareWorld {
       wanderY: 220 + Math.random() * (ROOM.depth - 320),
       facing: 0,
       need: null,
+      wantedItemId: null,
       needAgeMs: 0,
       nextNeedMs: 4000 + Math.random() * 6000,
+      drawingMs: 0,
+      hasDrawing: false,
       happiness: 100,
       carried: false,
       holdingHands: false,
       erupted: false,
+      ritualMsLeft: 0,
       model,
       bubble: null,
       bubbleFor: '',
       nameTag,
       glow,
       walkPhase: Math.random() * 6,
+      ritualForm: null,
     };
 
     this.nextBabyId += 1;
@@ -353,28 +397,46 @@ export class DaycareWorld {
     disposeSubtree(baby.model.root);
   }
 
-  /** What a baby wants right now, chosen from what the room can provide. */
-  private pickNeed(): NeedKind {
-    const options: NeedKind[] = ['hungry', 'thirsty', 'bored', 'sleepy', 'sad'];
-    return options[Math.floor(Math.random() * options.length)];
+  /**
+   * Give a baby something to want, and decide *exactly* what. A hungry baby
+   * does not ask for "food" — it asks for crisps, and the bubble over its head
+   * shows crisps, so you are never guessing what to fetch.
+   */
+  private giveNeed(baby: BabyEntity): void {
+    const options: NeedKind[] = ['hungry', 'thirsty', 'bored', 'sleepy', 'sad', 'arty'];
+    const need = options[Math.floor(Math.random() * options.length)];
+    baby.need = need;
+    baby.needAgeMs = 0;
+
+    const kind = NEED_ITEM_KIND[need];
+    if (!kind) {
+      baby.wantedItemId = null;
+      return;
+    }
+
+    let choices = itemsOfKind(kind);
+    // A fussy monster only ever asks for food wearing its one label, which is
+    // how "she only eats socks" works without a special case anywhere else.
+    const fussy = baby.species.fussyAbout;
+    if (fussy && kind === 'food') {
+      const liked = choices.filter((item) => item.tags.includes(fussy));
+      if (liked.length > 0) choices = liked;
+    }
+    baby.wantedItemId = choices[Math.floor(Math.random() * choices.length)].id;
   }
 
-  /** Does this item answer that need, for this particular fussy little monster? */
+  /** Is this the exact thing it asked for? */
   private satisfies(baby: BabyEntity, item: Item): boolean {
-    if (baby.need === 'hungry' && item.kind !== 'food') return false;
-    if (baby.need === 'thirsty' && item.kind !== 'drink') return false;
-    if (baby.need === 'bored' && item.kind !== 'toy') return false;
-    if (baby.need === 'sleepy' && item.kind !== 'blanket') return false;
-    if (baby.need === 'sad') return false;
-    // Fussiness is about food only. A fussy baby that could never be given a
-    // drink it liked would just be a dead end.
-    const fussy = baby.species.fussyAbout;
-    if (fussy && item.kind === 'food') return item.tags.includes(fussy);
-    return true;
+    return baby.wantedItemId !== null && item.id === baby.wantedItemId;
+  }
+
+  /** What a baby is asking for, as a picture and some words. */
+  private wantedItem(baby: BabyEntity): Item | null {
+    return baby.wantedItemId ? itemById(baby.wantedItemId) : null;
   }
 
   private fuseLeftMs(baby: BabyEntity): number | null {
-    if (baby.species.anomaly === 'none' || baby.need === null) return null;
+    if (baby.species.anomaly === 'none' || baby.need === null || baby.erupted) return null;
     return Math.max(0, ANOMALY.fuseMs - baby.needAgeMs);
   }
 
@@ -434,7 +496,20 @@ export class DaycareWorld {
       const baby = this.babyById(target.id);
       if (!baby) return null;
 
+      // Once the ritual has started there is exactly one thing worth doing,
+      // and it is not cuddling it.
+      if (baby.erupted) {
+        return {
+          title: 'THE RITUAL',
+          subtitle: 'It is up in the air. It needs its nappy changing. Now.',
+          actions: [{ id: 'nappy', label: '🧷 Change its nappy' }],
+        };
+      }
+
       const actions: MenuAction[] = [];
+      if (baby.hasDrawing) {
+        actions.push({ id: 'takedrawing', label: '🖼️ Take their drawing' });
+      }
       if (this.holding) {
         actions.push({
           id: `give:${this.holding.id}`,
@@ -452,19 +527,29 @@ export class DaycareWorld {
         label: baby.carried ? 'Put it down' : 'Pick it up',
       });
 
-      const subtitle = baby.need
-        ? `${baby.species.name} — ${NEED_WORD[baby.need]} ${NEED_EMOJI[baby.need]}`
-        : `${baby.species.name} — happy enough for now`;
+      const wanted = this.wantedItem(baby);
+      let subtitle: string;
+      if (baby.hasDrawing) {
+        subtitle = `${baby.species.name} — has finished a picture for you`;
+      } else if (baby.drawingMs > 0) {
+        subtitle = `${baby.species.name} — busy colouring`;
+      } else if (baby.need && wanted) {
+        subtitle = `${baby.species.name} — wants ${wanted.name} ${wanted.emoji}`;
+      } else if (baby.need) {
+        subtitle = `${baby.species.name} — ${NEED_WORD[baby.need]} ${NEED_EMOJI[baby.need]}`;
+      } else {
+        subtitle = `${baby.species.name} — happy enough for now`;
+      }
       return { title: baby.name, subtitle, actions };
     }
 
     if (target.kind === 'fridge') {
       return {
         title: 'The fridge',
-        subtitle: 'Food and drink. Watch out — some of them are fussy.',
+        subtitle: 'Fetch exactly the one they asked for.',
         actions: ITEMS.filter((item) => item.kind === 'food' || item.kind === 'drink').map((item) => ({
           id: `take:${item.id}`,
-          label: `Take ${item.name}`,
+          label: `${item.emoji}  Take ${item.name}`,
         })),
       };
     }
@@ -475,7 +560,7 @@ export class DaycareWorld {
         subtitle: 'For a bored monster.',
         actions: ITEMS.filter((item) => item.kind === 'toy').map((item) => ({
           id: `take:${item.id}`,
-          label: `Take ${item.name}`,
+          label: `${item.emoji}  Take ${item.name}`,
         })),
       };
     }
@@ -484,7 +569,15 @@ export class DaycareWorld {
       return {
         title: 'The nap corner',
         subtitle: 'For a sleepy monster.',
-        actions: [{ id: 'take:blanket', label: 'Take a blanket' }],
+        actions: [{ id: 'take:blanket', label: '🛏️  Take a blanket' }],
+      };
+    }
+
+    if (target.kind === 'table') {
+      return {
+        title: 'The colouring table',
+        subtitle: 'Give the crayons to a monster that wants to draw.',
+        actions: [{ id: 'take:crayons', label: '🖍️  Take the crayons' }],
       };
     }
 
@@ -538,23 +631,69 @@ export class DaycareWorld {
       this.setHeldModel(null);
 
       if (baby.need && this.satisfies(baby, item)) {
+        // Crayons are a special case: it does not want to *have* them, it wants
+        // to sit and draw with them for a bit and then show you the picture.
+        if (item.kind === 'crayons') {
+          baby.need = null;
+          baby.wantedItemId = null;
+          baby.needAgeMs = 0;
+          baby.drawingMs = BABIES.drawingMs;
+          baby.happiness = Math.min(100, baby.happiness + 8);
+          this.hint = `${baby.name} is colouring. Come back for the picture.`;
+          music.coin();
+          return;
+        }
         this.meetNeed(baby, baby.species.anomaly === 'none' ? 10 : 10 * ANOMALY.payMultiplier);
         this.hint = `${baby.name} wanted that. Lovely.`;
       } else {
         baby.happiness = Math.max(0, baby.happiness - BABIES.wrongThingPenalty);
-        const fussy = baby.species.fussyAbout;
-        this.hint = fussy
-          ? `${baby.name} only wants ${fussy} things. Crosser now.`
+        const wanted = this.wantedItem(baby);
+        this.hint = wanted
+          ? `${baby.name} did not want that — it asked for ${wanted.name} ${wanted.emoji}.`
           : `${baby.name} did not want that.`;
+        music.buzz();
       }
       return;
     }
 
     switch (actionId) {
+      case 'nappy': {
+        // The ritual, ended by the least dramatic thing imaginable.
+        baby.erupted = false;
+        baby.ritualMsLeft = 0;
+        baby.need = null;
+        baby.wantedItemId = null;
+        baby.needAgeMs = 0;
+        baby.nextNeedMs = BABIES.needGapMs;
+        baby.happiness = 100;
+        if (baby.ritualForm) {
+          baby.model.root.remove(baby.ritualForm);
+          disposeSubtree(baby.ritualForm);
+          baby.ritualForm = null;
+        }
+        baby.model.body.visible = true;
+        this.coins += 60;
+        this.hint = `You changed its nappy. The ritual stopped. Everyone is fine.`;
+        music.coin();
+        break;
+      }
+      case 'takedrawing':
+        baby.hasDrawing = false;
+        // Give them a breather before they want the next thing. Without this
+        // they can ask for something the instant you take the picture, because
+        // the countdown was already at zero when they started colouring.
+        baby.nextNeedMs = BABIES.needGapMs + Math.random() * BABIES.needGapJitterMs;
+        baby.happiness = Math.min(100, baby.happiness + 14);
+        this.coins += BABIES.drawingCoins;
+        this.drawings += 1;
+        this.hint = `${baby.name} gave you their drawing. You have ${this.drawings} now.`;
+        music.coin();
+        break;
       case 'cuddle':
         if (baby.need === 'sad') {
           this.meetNeed(baby, baby.species.anomaly === 'none' ? 8 : 8 * ANOMALY.payMultiplier);
           this.hint = `${baby.name} feels much better.`;
+          music.coin();
         } else {
           baby.happiness = Math.min(100, baby.happiness + 6);
           this.hint = `${baby.name} enjoyed that, but it wanted something else.`;
@@ -588,6 +727,7 @@ export class DaycareWorld {
 
   private meetNeed(baby: BabyEntity, coins: number): void {
     baby.need = null;
+    baby.wantedItemId = null;
     baby.needAgeMs = 0;
     baby.nextNeedMs = BABIES.needGapMs + Math.random() * BABIES.needGapJitterMs;
     baby.happiness = Math.min(100, baby.happiness + BABIES.needMetReward);
@@ -619,7 +759,7 @@ export class DaycareWorld {
 
   private step(dt: number): void {
     const ms = dt * 1000;
-    if (!this.gameOver) {
+    if (!this.gameOver && !this.dayReport) {
       this.stepPlayer(dt);
       this.stepSpawning(ms);
       this.stepParents(ms, dt);
@@ -702,14 +842,37 @@ export class DaycareWorld {
 
   private stepBabies(ms: number, dt: number): void {
     for (const baby of this.babies) {
-      if (baby.erupted) continue;
+      // A ritual in progress: it hangs in the air and you have until the
+      // second countdown runs out to get over there with a clean nappy.
+      if (baby.erupted) {
+        baby.ritualMsLeft -= ms;
+        if (baby.ritualMsLeft <= 0) {
+          this.gameOver = {
+            reason: 'The ritual finished.',
+            detail:
+              'It hung in the air and nobody changed its nappy. Whatever it was summoning arrived. Everyone had to go home.',
+          };
+        }
+        continue;
+      }
 
-      // Needs.
+      // Colouring: a while after you hand over the crayons, there is a picture.
+      if (baby.drawingMs > 0) {
+        baby.drawingMs -= ms;
+        if (baby.drawingMs <= 0) {
+          baby.drawingMs = 0;
+          baby.hasDrawing = true;
+        }
+      }
+
+      // Needs. A baby busy colouring, or holding a finished picture, is not
+      // going to start wanting something else mid-masterpiece.
       if (baby.need === null) {
-        baby.nextNeedMs -= ms;
-        if (baby.nextNeedMs <= 0) {
-          baby.need = this.pickNeed();
-          baby.needAgeMs = 0;
+        if (baby.drawingMs > 0 || baby.hasDrawing) {
+          // busy
+        } else {
+          baby.nextNeedMs -= ms;
+          if (baby.nextNeedMs <= 0) this.giveNeed(baby);
         }
       } else {
         baby.needAgeMs += ms;
@@ -790,17 +953,20 @@ export class DaycareWorld {
 
   private erupt(baby: BabyEntity): void {
     baby.erupted = true;
+    music.dread();
 
     if (baby.species.anomaly === 'ritual') {
-      // It does not eat anybody. It goes up in the air and starts the ritual.
+      // It does not eat anybody. It rises into the air and starts the ritual —
+      // and the ritual is survivable, because what it actually needs is its
+      // nappy changing.
       baby.model.body.visible = false;
       const form = buildRitualForm();
       baby.model.root.add(form);
-      this.gameOver = {
-        reason: 'The ritual began.',
-        detail:
-          'You were too slow. It broke the door down, floated up into the air, and started the ritual. Everyone had to go home.',
-      };
+      baby.ritualForm = form;
+      baby.ritualMsLeft = ANOMALY.ritualMs;
+      baby.carried = false;
+      baby.holdingHands = false;
+      this.hint = 'IT IS DOING THE RITUAL. CHANGE ITS NAPPY.';
     } else {
       this.gameOver = {
         reason: 'It got out.',
@@ -810,22 +976,60 @@ export class DaycareWorld {
     }
   }
 
+  /** What a parent says when they come to collect. */
+  private verdictFor(baby: BabyEntity): ParentVerdict {
+    const happy = baby.happiness >= DAY.happyParentThreshold;
+    const delighted = baby.happiness >= 90;
+
+    const happyLines = [
+      'Thank you! They had a lovely day.',
+      'They are beaming. See you tomorrow.',
+      'Not a single tear. Marvellous.',
+    ];
+    const delightedLines = [
+      'They have not stopped talking about it.',
+      'Best day they have ever had, apparently.',
+      'Whatever you are doing, keep doing it.',
+    ];
+    const sadLines = [
+      'They seem rather upset, actually.',
+      'They have been crying. What happened?',
+      'We are going to have words about this.',
+    ];
+
+    const pool = delighted ? delightedLines : happy ? happyLines : sadLines;
+    // Pick from the child's name and how the day went, rather than at random:
+    // the same day reads the same way twice, and two parents in the same queue
+    // never say the identical sentence.
+    const seed =
+      [...baby.id].reduce((total, character) => total + character.charCodeAt(0), 0) +
+      Math.floor(baby.happiness / 10);
+    const said = pool[seed % pool.length];
+
+    return { babyName: baby.name, speciesName: baby.species.name, happy, said };
+  }
+
   private stepDay(ms: number): void {
     this.dayTimeLeftMs -= ms;
     if (this.dayTimeLeftMs > 0) return;
 
-    // Home time. Parents collect, and you hear about any miserable ones.
-    let pleased = 0;
-    for (const baby of this.babies) {
-      if (baby.happiness >= DAY.happyParentThreshold) pleased += 1;
-      this.removeBaby(baby);
-    }
-    this.coins += pleased * 15;
+    // Home time. Every parent comes back and tells you how it went.
+    const verdicts = this.babies.map((baby) => this.verdictFor(baby));
+    const pleased = verdicts.filter((verdict) => verdict.happy).length;
+    const earned = pleased * 15;
+
+    for (const baby of this.babies) this.removeBaby(baby);
     this.babies = [];
+    this.clearParents();
+    this.coins += earned;
     this.holding = null;
     this.setHeldModel(null);
-    this.hint = `Day ${this.dayNumber} over. ${pleased} happy parent${pleased === 1 ? '' : 's'}.`;
-    this.startDay(this.dayNumber + 1);
+    this.menuTarget = null;
+    this.pending = null;
+
+    // Setting this pauses everything until they press the button.
+    this.dayReport = { dayNumber: this.dayNumber, verdicts, earned };
+    this.hint = 'Home time.';
   }
 
   /** Bubbles, wobbling, the dread glow and the room going dark. */
@@ -842,20 +1046,35 @@ export class DaycareWorld {
       baby.model.limbs[2].rotation.x = swing;
       baby.model.limbs[3].rotation.x = -swing;
 
-      if (baby.carried) {
+      if (baby.erupted) {
+        // Rising, turning, and getting slowly higher the longer it goes on.
+        const risen = 1 - Math.max(0, baby.ritualMsLeft) / ANOMALY.ritualMs;
+        baby.model.root.position.y = 0.6 + risen * 1.1 + Math.sin(performance.now() * 0.003) * 0.08;
+        baby.model.root.rotation.y += dt * 1.6;
+        baby.model.shadow.visible = false;
+      } else if (baby.carried) {
         baby.model.root.position.y = 0.95;
+        baby.model.root.rotation.y = 0;
         baby.model.shadow.visible = false;
       } else {
         baby.model.root.position.y = 0;
+        baby.model.root.rotation.y = 0;
         baby.model.shadow.visible = true;
       }
 
       const fuse = this.fuseLeftMs(baby);
       if (fuse !== null && (worstFuse === null || fuse < worstFuse)) worstFuse = fuse;
 
-      // The thought bubble, rebuilt only when what it wants changes.
-      const wanted = baby.erupted ? '' : (baby.need ?? '');
-      const urgent = fuse !== null && fuse < ANOMALY.panicAtMs;
+      // The thought bubble, rebuilt only when what it wants changes. It shows
+      // the exact thing asked for, not the category, so "hungry" is never a
+      // guessing game about which of five foods it meant.
+      let wanted = '';
+      if (baby.erupted) wanted = '🌀';
+      else if (baby.hasDrawing) wanted = '🖼️';
+      else if (baby.drawingMs > 0) wanted = '🖍️';
+      else if (baby.need) wanted = this.wantedItem(baby)?.emoji ?? NEED_EMOJI[baby.need];
+
+      const urgent = (fuse !== null && fuse < ANOMALY.panicAtMs) || baby.erupted;
       const key = `${wanted}|${urgent}`;
       if (key !== baby.bubbleFor) {
         if (baby.bubble) {
@@ -865,7 +1084,7 @@ export class DaycareWorld {
           baby.bubble = null;
         }
         if (wanted) {
-          const bubble = thoughtBubble(NEED_EMOJI[wanted as NeedKind], urgent);
+          const bubble = thoughtBubble(wanted, urgent);
           // Up and off to one side, so it never sits on top of the face — the
           // face is where the anomaly tells are.
           bubble.position.set(0.46, baby.model.bubbleHeight, 0);
@@ -896,6 +1115,17 @@ export class DaycareWorld {
     this.sun.intensity += (0.85 - dread * 0.55 - this.sun.intensity) * Math.min(1, dt * 3);
     const target = new THREE.Color(0xdff3fb).lerp(new THREE.Color(0x1a0d16), dread);
     (this.scene.background as THREE.Color).lerp(target, Math.min(1, dt * 3));
+
+    // One thud a second while the fuse burns, speeding up as it goes.
+    if (worstFuse !== null && worstFuse < ANOMALY.panicAtMs) {
+      const closeness = 1 - worstFuse / ANOMALY.panicAtMs;
+      const gap = 900 - closeness * 500;
+      const now = performance.now();
+      if (now - this.lastHeartbeatAt > gap) {
+        this.lastHeartbeatAt = now;
+        music.heartbeat(closeness);
+      }
+    }
 
     const rattle = dread > 0.5 ? (dread - 0.5) * 2 : 0;
     this.room.door.position.x = kx(PLACES.door.x) + Math.sin(performance.now() * 0.05) * rattle * 0.05;
@@ -941,19 +1171,28 @@ export class DaycareWorld {
       dayNumber: this.dayNumber,
       dayTimeLeftMs: Math.max(0, this.dayTimeLeftMs),
       holding: this.holding,
-      babies: this.babies.map((baby) => ({
-        id: baby.id,
-        name: baby.name,
-        speciesName: baby.species.name,
-        need: baby.need,
-        happiness: Math.round(baby.happiness),
-        carried: baby.carried,
-        holdingHands: baby.holdingHands,
-        isAnomaly: baby.species.anomaly !== 'none',
-        fuseLeftMs: this.fuseLeftMs(baby),
-      })),
+      babies: this.babies.map((baby) => {
+        const wanted = this.wantedItem(baby);
+        return {
+          id: baby.id,
+          name: baby.name,
+          speciesName: baby.species.name,
+          need: baby.need,
+          wants: wanted ? { emoji: wanted.emoji, name: wanted.name } : null,
+          hasDrawing: baby.hasDrawing,
+          happiness: Math.round(baby.happiness),
+          carried: baby.carried,
+          holdingHands: baby.holdingHands,
+          isAnomaly: baby.species.anomaly !== 'none',
+          erupted: baby.erupted,
+          fuseLeftMs: this.fuseLeftMs(baby),
+          ritualMsLeft: baby.erupted ? Math.max(0, baby.ritualMsLeft) : null,
+        };
+      }),
       menu,
+      dayReport: this.dayReport,
       gameOver: this.gameOver,
+      musicOn: this.musicOn,
       hint: this.hint,
     };
     publish(snapshot);
