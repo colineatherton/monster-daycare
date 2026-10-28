@@ -3828,6 +3828,12 @@ export class DaycareWorld {
       dayReport: this.dayReport,
       gameOver: this.gameOver,
       hostLeft: this.hostLeft,
+      // Worked out on the host, so a guest is shown the same code and the
+      // same count as everybody else.
+      room:
+        netSession.role === 'solo'
+          ? null
+          : { code: netSession.roomCode, players: netSession.playerCount },
       musicOn: this.musicOn,
       hint: who.hint,
     };

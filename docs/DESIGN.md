@@ -345,6 +345,14 @@ people arrive — *"2 waiting to come in"* — and everybody stands in the room,
 told so, until the host presses the button. Joining late still works: you are
 let straight in.
 
+### The code stays on screen
+
+Next to the daycare's name, all shift: **🔑 ABCD · 3 people**. It used to be on
+the front page only, which meant that by the time a third person wanted to
+join, whoever opened the room had long since forgotten the code. Everybody sees
+the same thing, because the host works it out and sends it with everything
+else.
+
 ### Employee of the shift
 
 With more than one of you, the home-time card names whoever did the most, with

@@ -276,6 +276,12 @@ export interface GameSnapshot {
   gameOver: { reason: string; detail: string } | null;
   /** True for a guest once the host has gone. Nothing works without them. */
   hostLeft: boolean;
+  /**
+   * The room, while you are sharing one. Kept on screen because the code is
+   * only on the front page otherwise, and by the time a third person wants to
+   * join, whoever opened the room has long since forgotten it.
+   */
+  room: { code: string; players: number } | null;
   musicOn: boolean;
   hint: string;
 }

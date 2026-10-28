@@ -109,6 +109,17 @@ export default function GameHUD({ onQuit, touch }: { onQuit: () => void; touch: 
     <div className="hud">
       <div className="hud__top">
         <div className="pill pill--name">{snapshot.daycareName}</div>
+        {snapshot.room && (
+          <div
+            className="pill pill--room-code"
+            title="Read these four letters out to anybody else who wants to join"
+          >
+            🔑 <strong>{snapshot.room.code}</strong>
+            <span className="pill__who">
+              {snapshot.room.players} {snapshot.room.players === 1 ? 'person' : 'people'}
+            </span>
+          </div>
+        )}
         <div className="pill">Shift {snapshot.dayNumber}</div>
         <div className="pill">🕑 {clock(snapshot.dayTimeLeftMs)}</div>
         <div className="pill">🪙 {snapshot.coins}</div>
