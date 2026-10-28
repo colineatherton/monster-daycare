@@ -27,13 +27,22 @@ import {
   partitionWalls,
 } from './render/room.ts';
 import { buildBaby, buildRitualForm, type BabyModel } from './render/monsters.ts';
-import { buildParent, buildPlayer, type SkinId } from './render/player.ts';
+import { buildParent, buildPlayer, SKINS, type SkinId } from './render/player.ts';
 import { buildItem, buildDreadGlow } from './render/items.ts';
 import { thoughtBubble, textLabel } from './render/labels.ts';
 import { ITEMS, itemById, itemsOfKind } from './data/items.ts';
 import { BABY_NAMES, EVERYDAY_SPECIES, SPECIES, speciesById } from './data/species.ts';
 import { loadStory, saveStory, type StoryState } from './data/story.ts';
 import { secretFor, type SecretMode } from './data/secrets.ts';
+import { netSession } from './net/session.ts';
+import {
+  FRAME_MS,
+  INPUT_MS,
+  type BabyFrame,
+  type FrameMessage,
+  type NetMessage,
+  type StaffFrame,
+} from './net/protocol.ts';
 import { attachInput, walkVector } from './input.ts';
 import { publish, commands } from './bus.ts';
 import { music } from './audio/music.ts';
@@ -236,9 +245,15 @@ export class DaycareWorld {
   /** Everybody working in the building. Seat 0 is the person at this screen. */
   private staff: Staff[] = [];
 
+  /**
+   * Which seat belongs to this screen. Zero when hosting or playing alone; a
+   * guest is told its seat when it says hello.
+   */
+  private mySeat = 0;
+
   /** The grown-up at this keyboard. */
   private get me(): Staff {
-    return this.staff[0];
+    return this.staff[this.mySeat] ?? this.staff[0];
   }
 
   private babies: BabyEntity[] = [];
@@ -322,6 +337,13 @@ export class DaycareWorld {
   /** Which day a fresh run starts on. `?day=3` jumps straight to the anomalies. */
   private readonly firstDay: number;
 
+  /** Connection ids in seat order, so seat N belongs to one particular guest. */
+  private seats: string[] = [];
+  private sinceFrameMs = 0;
+  private sinceInputMs = 0;
+  /** The last picture of the building this guest was sent. */
+  private latestFrame: FrameMessage | null = null;
+
   /** Normally 'normal'. The two secret names change the whole shift. */
   private readonly mode: SecretMode;
 
@@ -374,15 +396,22 @@ export class DaycareWorld {
 
     this.disposeInput = attachInput();
     commands.current = {
-      chooseMenuAction: (id) => this.chooseMenuAction(this.me, id),
+      chooseMenuAction: (id) => {
+        if (this.amGuest) {
+          this.me.menuTarget = null;
+          netSession.send({ t: 'act', actionId: id });
+          return;
+        }
+        this.chooseMenuAction(this.me, id);
+      },
       selectBaby: (babyId) => {
         // The building is far bigger than the screen, so the list down the
-        // side is the only way to reach a child in another room.
-        if (this.babyById(babyId)) this.me.menuTarget = { kind: 'baby', id: babyId };
+        // side is the only way to reach a child in another room. It goes
+        // through the same path as tapping one, so a guest's choice reaches
+        // the host rather than being opened only on their own screen.
+        if (this.babyById(babyId)) this.tap({ kind: 'baby', id: babyId });
       },
-      closeMenu: () => {
-        this.me.menuTarget = null;
-      },
+      closeMenu: () => this.tap(null),
       restart: () => this.restart(),
       nextDay: () => {
         if (!this.dayReport) return;
@@ -398,6 +427,19 @@ export class DaycareWorld {
 
     music.setMuted(!this.musicOn);
     music.start();
+
+    // A guest introduces itself, so the host knows who has walked in.
+    if (this.amGuest) {
+      const label = SKINS.find((entry) => entry.id === options.skin)?.label ?? 'Helper';
+      netSession.send({ t: 'hello', name: label, skin: options.skin });
+    }
+
+    netSession.listen({
+      onStatus: () => undefined,
+      onMessage: (message, from) => this.onNetMessage(message, from),
+      onGuestJoined: (id) => this.onGuestJoined(id),
+      onGuestLeft: (id) => this.onGuestLeft(id),
+    });
 
     canvas.addEventListener('pointerdown', this.onPointerDown);
 
@@ -757,17 +799,29 @@ export class DaycareWorld {
 
     const babyId = hit.object.userData.babyId as string | undefined;
     if (babyId) {
-      this.me.menuTarget = { kind: 'baby', id: babyId };
+      this.tap({ kind: 'baby', id: babyId });
       return;
     }
     const parentId = hit.object.userData.parentId as string | undefined;
     if (parentId) {
-      this.me.menuTarget = { kind: 'parent', id: parentId };
+      this.tap({ kind: 'parent', id: parentId });
       return;
     }
     const target = hit.object.userData.target as ClickTarget | undefined;
-    this.me.menuTarget = target ? { ...target } : null;
+    this.tap(target ? { ...target } : null);
   };
+
+  /**
+   * Somebody tapped something. On your own or hosting, that opens the menu
+   * here; as a guest it is a request, and the menu comes back with the next
+   * frame.
+   */
+  private tap(target: ClickTarget | null): void {
+    this.me.menuTarget = target;
+    if (!this.amGuest) return;
+    if (target) netSession.send({ t: 'tap', kind: target.kind, id: target.id });
+    else netSession.send({ t: 'closemenu' });
+  }
 
   private babyById(id: string | undefined): BabyEntity | undefined {
     return this.babies.find((baby) => baby.id === id);
@@ -1633,6 +1687,329 @@ export class DaycareWorld {
     }
   }
 
+  /* ------------------------------------------------------------ the wire */
+
+  private get amHost(): boolean {
+    return netSession.role === 'host';
+  }
+
+  private get amGuest(): boolean {
+    return netSession.role === 'guest';
+  }
+
+  private onGuestJoined(id: string): void {
+    if (!this.amHost) return;
+    const seat = this.staff.length;
+    this.seats[seat] = id;
+    // A placeholder until they say who they are; their hello replaces it.
+    this.addStaff(seat, `Helper ${seat}`, 'lsaCardigan');
+    this.sendLobby();
+  }
+
+  private onGuestLeft(id: string): void {
+    if (!this.amHost) return;
+    const seat = this.seats.indexOf(id);
+    if (seat === -1) return;
+
+    // Anything in their arms is put down where they stood rather than
+    // vanishing with them.
+    for (const baby of this.babies) {
+      if (baby.carriedBy === seat) {
+        baby.carried = false;
+        baby.carriedBy = null;
+      } else if (baby.carriedBy !== null && baby.carriedBy > seat) {
+        baby.carriedBy -= 1;
+      }
+    }
+    this.removeStaff(seat);
+    this.seats.splice(seat, 1);
+    this.sendLobby();
+  }
+
+  private sendLobby(): void {
+    if (!this.amHost) return;
+    netSession.send({
+      t: 'lobby',
+      names: this.staff.map((person) => person.name),
+      full: netSession.isFull,
+    });
+  }
+
+  private onNetMessage(message: NetMessage, from: string): void {
+    if (this.amGuest) {
+      if (message.t === 'frame') this.applyFrame(message);
+      // The host's reply to our hello says which seat we are sitting in, and
+      // therefore which of the people on screen the camera should follow.
+      if (message.t === 'hello' && typeof message.seat === 'number') this.mySeat = message.seat;
+      return;
+    }
+    if (!this.amHost) return;
+
+    const seat = this.seats.indexOf(from);
+    const who = seat === -1 ? undefined : this.staff[seat];
+    if (!who) return;
+
+    switch (message.t) {
+      case 'hello':
+        who.name = message.name.slice(0, 14) || `Helper ${seat}`;
+        who.skin = message.skin;
+        // Rebuild them as whoever they said they were.
+        this.scene.remove(who.model.root);
+        disposeSubtree(who.model.root);
+        who.model = buildPlayer(who.skin);
+        who.model.root.traverse((child) => {
+          if ((child as THREE.Mesh).isMesh) child.castShadow = true;
+        });
+        this.scene.add(who.model.root);
+        who.heldModel = null;
+        who.mopModel = null;
+        netSession.sendTo(from, { t: 'hello', name: this.me.name, skin: this.me.skin, seat });
+        this.sendLobby();
+        break;
+      case 'input':
+        who.remoteMove = { x: message.x, y: message.y };
+        break;
+      case 'tap':
+        who.menuTarget = { kind: message.kind as ClickTarget['kind'], id: message.id };
+        break;
+      case 'act':
+        this.chooseMenuAction(who, message.actionId);
+        break;
+      case 'closemenu':
+        who.menuTarget = null;
+        break;
+      default:
+        break;
+    }
+  }
+
+  /** The host's picture of the building, as one particular guest needs it. */
+  private frameFor(seat: number): FrameMessage {
+    const staff: StaffFrame[] = this.staff.map((person) => ({
+      seat: person.seat,
+      name: person.name,
+      skin: person.skin,
+      x: person.x,
+      y: person.y,
+      facing: person.facing,
+      item: person.holding?.id ?? null,
+      mop: person.holdingMop,
+    }));
+
+    const babies: BabyFrame[] = this.babies.map((baby) => ({
+      id: baby.id,
+      species: baby.species.id,
+      name: baby.name,
+      x: baby.x,
+      y: baby.y,
+      facing: baby.facing,
+      asleep: baby.asleep,
+      carried: baby.carried,
+      bed: baby.bedIndex,
+      eruption: baby.eruption,
+      bubble: baby.bubbleFor.split('|')[0] ?? '',
+      urgent: baby.bubbleFor.endsWith('true'),
+      glow: (baby.glow.material as THREE.MeshBasicMaterial).opacity,
+    }));
+
+    return {
+      t: 'frame',
+      hud: this.snapshotFor(this.staff[seat]),
+      staff,
+      babies,
+      messes: this.messes.map((mess) => ({ id: mess.id, x: mess.x, y: mess.y })),
+      teddy: this.lostTeddy ? { x: this.lostTeddy.x, y: this.lostTeddy.y } : null,
+      parents: this.queue.map((parent) => ({
+        id: parent.id,
+        x: parent.x,
+        y: parent.y,
+        species: parent.species.id,
+        babyName: parent.babyName,
+      })),
+      wall: this.onTheWall,
+      doorBroken: this.room.anomalyDoor.rotation.z !== 0,
+      dread: 1 - this.ambient.intensity / 0.78,
+    };
+  }
+
+  /**
+   * A guest draws the host's building. There is no simulation on this side at
+   * all: everything here is reconciling what is on screen with the picture
+   * that just arrived, which is why the two can never disagree.
+   */
+  private applyFrame(frame: FrameMessage): void {
+    this.latestFrame = frame;
+
+    // --- the grown-ups
+    while (this.staff.length > frame.staff.length) this.removeStaff(this.staff.length - 1);
+    frame.staff.forEach((person, seat) => {
+      let member = this.staff[seat];
+      if (!member || member.skin !== person.skin) {
+        if (member) this.removeStaff(seat);
+        member = this.addStaff(seat, person.name, person.skin);
+      }
+      member.name = person.name;
+      member.x = person.x;
+      member.y = person.y;
+      member.facing = person.facing;
+      // Walking feet, worked out from how far they moved.
+      member.walkPhase += Math.hypot(person.x - member.x, person.y - member.y) > 0.5 ? 0.35 : 0;
+      member.model.root.position.set(kx(person.x), 0, kz(person.y));
+      member.model.body.rotation.y = person.facing;
+      const swing = Math.sin(member.walkPhase) * 0.5;
+      member.model.legs[0].rotation.x = swing;
+      member.model.legs[1].rotation.x = -swing;
+
+      const wantedItem = person.item ?? (person.mop ? 'mop' : null);
+      const haveItem = member.holding?.id ?? (member.holdingMop ? 'mop' : null);
+      if (wantedItem !== haveItem) {
+        this.setMop(member, person.mop);
+        if (person.item) {
+          member.holding = itemById(person.item);
+          this.setHeldModel(member, buildItem(member.holding));
+        } else {
+          member.holding = null;
+          this.setHeldModel(member, null);
+        }
+      }
+    });
+
+    // --- the children
+    const seen = new Set(frame.babies.map((baby) => baby.id));
+    for (const baby of this.babies.slice()) {
+      if (!seen.has(baby.id)) {
+        this.removeBaby(baby);
+        this.babies = this.babies.filter((other) => other !== baby);
+      }
+    }
+    for (const incoming of frame.babies) {
+      let baby = this.babyById(incoming.id);
+      if (!baby) {
+        this.spawnBaby(speciesById(incoming.species), { quietly: true });
+        baby = this.babies[this.babies.length - 1];
+        baby.id = incoming.id;
+        baby.model.body.traverse((child) => {
+          if ((child as THREE.Mesh).isMesh) child.userData.babyId = incoming.id;
+        });
+      }
+      baby.name = incoming.name;
+      baby.x = incoming.x;
+      baby.y = incoming.y;
+      baby.facing = incoming.facing;
+      baby.asleep = incoming.asleep;
+      baby.carried = incoming.carried;
+      baby.bedIndex = incoming.bed;
+      baby.eruption = incoming.eruption as Baby['eruption'];
+      baby.walkPhase += 0.12;
+      (baby.glow.material as THREE.MeshBasicMaterial).opacity = incoming.glow;
+
+      const key = `${incoming.bubble}|${incoming.urgent}`;
+      if (key !== baby.bubbleFor) {
+        if (baby.bubble) {
+          baby.model.root.remove(baby.bubble);
+          baby.bubble.material.map?.dispose();
+          baby.bubble.material.dispose();
+          baby.bubble = null;
+        }
+        if (incoming.bubble) {
+          const bubble = thoughtBubble(incoming.bubble, incoming.urgent);
+          bubble.position.set(0.46, baby.model.bubbleHeight, 0);
+          baby.model.root.add(bubble);
+          baby.bubble = bubble;
+        }
+        baby.bubbleFor = key;
+      }
+    }
+
+    // --- the floor, the door, the wall and the parents at the door
+    const messIds = new Set(frame.messes.map((mess) => mess.id));
+    for (const mess of this.messes.slice()) {
+      if (!messIds.has(mess.id)) {
+        this.scene.remove(mess.group);
+        disposeSubtree(mess.group);
+        this.messes = this.messes.filter((other) => other !== mess);
+      }
+    }
+    for (const incoming of frame.messes) {
+      if (this.messes.some((mess) => mess.id === incoming.id)) continue;
+      const group = buildMess(this.messes.length + 1);
+      group.position.set(kx(incoming.x), 0, kz(incoming.y));
+      group.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          child.userData.target = { kind: 'mess', id: incoming.id };
+        }
+      });
+      this.scene.add(group);
+      this.messes.push({ id: incoming.id, x: incoming.x, y: incoming.y, group });
+    }
+
+    if (Boolean(this.lostTeddy) !== Boolean(frame.teddy)) this.setLostTeddy(Boolean(frame.teddy));
+    this.setAnomalyDoorBroken(frame.doorBroken);
+
+    while (this.onTheWall < frame.wall) {
+      this.room.pictureWall.add(hangDrawing(this.onTheWall, 0xff5f9e));
+      this.onTheWall += 1;
+    }
+
+    const parentIds = new Set(frame.parents.map((parent) => parent.id));
+    for (const parent of this.queue.slice()) {
+      if (!parentIds.has(parent.id)) this.removeParentModel(parent);
+    }
+    for (const incoming of frame.parents) {
+      if (this.queue.some((parent) => parent.id === incoming.id)) continue;
+      const species = speciesById(incoming.species);
+      const group = buildParent(species.shape === 'blob' ? 'blob' : 'shaggy', species.colour);
+      group.scale.setScalar(0.8);
+      group.position.set(kx(incoming.x), 0, kz(incoming.y));
+      group.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) child.userData.parentId = incoming.id;
+      });
+      const nameTag = textLabel(`${incoming.babyName}'s parent`, '#7a0040');
+      nameTag.position.y = 2.3;
+      nameTag.scale.set(1.9, 0.48, 1);
+      group.add(nameTag);
+      this.scene.add(group);
+      this.queue.push({
+        id: incoming.id,
+        babyId: '',
+        babyName: incoming.babyName,
+        species,
+        x: incoming.x,
+        y: incoming.y,
+        group,
+      });
+    }
+
+    // The building darkens for everybody, not just whoever is hosting.
+    const dread = frame.dread;
+    this.ambient.intensity = 0.78 - dread * 0.5;
+    this.sun.intensity = 0.85 - dread * 0.55;
+    (this.scene.background as THREE.Color).lerp(
+      new THREE.Color(0xdff3fb).lerp(new THREE.Color(0x1a0d16), dread),
+      0.3,
+    );
+  }
+
+  private stepNet(ms: number): void {
+    if (this.amHost) {
+      this.sinceFrameMs += ms;
+      if (this.sinceFrameMs < FRAME_MS) return;
+      this.sinceFrameMs = 0;
+      // Each guest gets their own HUD, because the menu in it is theirs.
+      this.seats.forEach((id, seat) => {
+        if (id) netSession.sendTo(id, this.frameFor(seat));
+      });
+      return;
+    }
+
+    if (!this.amGuest) return;
+    this.sinceInputMs += ms;
+    if (this.sinceInputMs < INPUT_MS) return;
+    this.sinceInputMs = 0;
+    const move = walkVector();
+    netSession.send({ t: 'input', x: move.x, y: move.y });
+  }
+
   /* ------------------------------------------------------- Wren's long game */
 
   /**
@@ -2143,10 +2520,15 @@ export class DaycareWorld {
     this.removeParent(parent);
   }
 
-  private removeParent(parent: ParentEntity): void {
+  /** Take a parent off the screen, without ending the day. */
+  private removeParentModel(parent: ParentEntity): void {
     this.scene.remove(parent.group);
     disposeSubtree(parent.group);
     this.queue = this.queue.filter((other) => other !== parent);
+  }
+
+  private removeParent(parent: ParentEntity): void {
+    this.removeParentModel(parent);
 
     if (this.queue.length === 0) {
       this.hangTodaysDrawings();
@@ -2255,6 +2637,15 @@ export class DaycareWorld {
 
   private step(dt: number): void {
     const ms = dt * 1000;
+    this.stepNet(ms);
+
+    // A guest does not simulate anything. The host is the only authority, so
+    // the two buildings can never drift apart.
+    if (this.amGuest) {
+      this.stepGuestVisuals(dt);
+      return;
+    }
+
     if (!this.gameOver && !this.dayReport) {
       this.stepPlayer(dt, ms);
       if (!this.homeTime) {
@@ -2286,8 +2677,8 @@ export class DaycareWorld {
     if ((dx !== 0 || dy !== 0) && who.pending) who.pending = null;
 
     if (who.pending) {
-      if (this.withinReach(this.me, who.pending.target)) {
-        this.performPending(this.me);
+      if (this.withinReach(who, who.pending.target)) {
+        this.performPending(who);
       } else {
         const spot = this.targetPosition(who.pending.target);
         const toX = spot.x - who.x;
@@ -2772,6 +3163,51 @@ export class DaycareWorld {
     this.beginHomeTime();
   }
 
+  /** A guest only animates what it was sent, and moves its own camera. */
+  private stepGuestVisuals(dt: number): void {
+    for (const baby of this.babies) {
+      baby.model.root.position.set(kx(baby.x), 0, kz(baby.y));
+      baby.model.body.rotation.y = baby.facing;
+      const swing = Math.sin(baby.walkPhase) * 0.35;
+      baby.model.limbs[2].rotation.x = swing;
+      baby.model.limbs[3].rotation.x = -swing;
+
+      if (baby.asleep) {
+        baby.model.root.position.y = 0.36;
+        baby.model.body.rotation.x = -Math.PI / 2;
+        baby.model.shadow.visible = false;
+      } else if (baby.carried) {
+        baby.model.body.rotation.x = 0;
+        baby.model.root.position.y = 0.95;
+        baby.model.shadow.visible = false;
+      } else if (baby.eruption === 'ritual') {
+        baby.model.body.rotation.x = 0;
+        baby.model.root.position.y = 1.2 + Math.sin(performance.now() * 0.003) * 0.08;
+        baby.model.root.rotation.y += dt * 1.6;
+        baby.model.shadow.visible = false;
+      } else {
+        baby.model.body.rotation.x = 0;
+        baby.model.root.position.y = 0;
+        baby.model.root.rotation.y = 0;
+        baby.model.shadow.visible = true;
+      }
+      baby.nameTag.position.y = baby.model.bubbleHeight + (baby.bubble ? 0.68 : 0.12);
+    }
+
+    if (this.me.menuTarget) {
+      const spot = this.targetPosition(this.me.menuTarget);
+      this.ring.visible = true;
+      this.ring.position.set(kx(spot.x), 0.03, kz(spot.y));
+      const scale = this.me.menuTarget.kind === 'baby' ? 1 : 1.8;
+      this.ring.scale.set(scale, scale, scale);
+    } else {
+      this.ring.visible = false;
+    }
+
+    if (this.me.heldModel) this.me.heldModel.rotation.y += dt * 1.2;
+    this.stepCamera(dt);
+  }
+
   /** Bubbles, wobbling, the dread glow, the camera and the room going dark. */
   private stepVisuals(dt: number): void {
     let worstFuse: number | null = null;
@@ -2940,13 +3376,13 @@ export class DaycareWorld {
     };
   }
 
-  private publishSnapshot(): void {
+  private snapshotFor(who: Staff): GameSnapshot {
     const menu = (() => {
-      if (!this.me.menuTarget) return null;
-      const built = this.menuFor(this.me, this.me.menuTarget);
+      if (!who.menuTarget) return null;
+      const built = this.menuFor(this.me, who.menuTarget);
       if (!built) return null;
-      const spot = this.targetPosition(this.me.menuTarget);
-      const screen = this.screenPosition(spot.x, spot.y, this.me.menuTarget.kind === 'baby' ? 1.1 : 1.6);
+      const spot = this.targetPosition(who.menuTarget);
+      const screen = this.screenPosition(spot.x, spot.y, who.menuTarget.kind === 'baby' ? 1.1 : 1.6);
       return { ...built, screenX: screen.x, screenY: screen.y };
     })();
 
@@ -2959,14 +3395,14 @@ export class DaycareWorld {
       upgrades: { ...this.upgrades },
       dayNumber: this.dayNumber,
       dayTimeLeftMs: Math.max(0, this.dayTimeLeftMs),
-      playerRoom: ROOMS[roomAt(this.me.x, this.me.y)].name,
+      playerRoom: ROOMS[roomAt(who.x, who.y)].name,
       lunchtime: this.lunchtime,
       announcement: this.announcementMsLeft > 0 ? this.announcement : null,
       toTickIn: this.babies.filter((baby) => !baby.tickedIn).length,
       messCount: this.messes.length,
-      holdingMop: this.me.holdingMop,
-      holding: this.me.holding,
-      teaMsLeft: this.me.teaMsLeft,
+      holdingMop: who.holdingMop,
+      holding: who.holding,
+      teaMsLeft: who.teaMsLeft,
       babies: this.babies.map((baby) => {
         const wanted = this.wantedItem(baby);
         return {
@@ -3006,8 +3442,12 @@ export class DaycareWorld {
       dayReport: this.dayReport,
       gameOver: this.gameOver,
       musicOn: this.musicOn,
-      hint: this.me.hint,
+      hint: who.hint,
     };
-    publish(snapshot);
+    return snapshot;
+  }
+
+  private publishSnapshot(): void {
+    publish(this.amGuest ? (this.latestFrame?.hud ?? this.snapshotFor(this.me)) : this.snapshotFor(this.me));
   }
 }

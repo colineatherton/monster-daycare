@@ -2,6 +2,7 @@ import { useState } from 'react';
 import GameCanvas from './components/GameCanvas.tsx';
 import GameHUD from './components/GameHUD.tsx';
 import TouchControls from './components/TouchControls.tsx';
+import MultiplayerPanel from './components/MultiplayerPanel.tsx';
 import { prefersTouchControls } from './game/input.ts';
 import { secretFor, secretTeaser } from './game/data/secrets.ts';
 import { SKINS, type SkinId } from './game/render/player.ts';
@@ -68,6 +69,8 @@ export default function App() {
               </button>
             ))}
           </div>
+
+          <MultiplayerPanel onConnected={() => setPlaying(true)} />
 
           <button className="big-button" onClick={() => setPlaying(true)}>
             Open the daycare

@@ -26,6 +26,10 @@ you a second chance.
 The first anomaly does not arrive until day 3, by which time you know the room well enough
 to be annoyed at being interrupted.
 
+**Up to five of you can share one daycare.** One presses *Open a room* and
+reads out four letters; everybody else types them in. The host runs the only
+simulation, so the two buildings can never disagree.
+
 ## Install and run
 
 Requires Node 20 or newer.
