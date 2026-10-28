@@ -504,7 +504,9 @@ export class DaycareWorld {
     this.scene.add(this.room.root);
     this.scene.add(this.ring);
 
-    this.addStaff(0, 'You', options.skin);
+    // Named after whoever you chose to be, the same as everybody else. "You"
+    // read oddly on the board next to Sam and Mr Ashworth.
+    this.addStaff(0, SKINS.find((entry) => entry.id === options.skin)?.label ?? 'The Teacher', options.skin);
     this.startDay(this.firstDay);
 
     this.disposeInput = attachInput();
@@ -1910,6 +1912,21 @@ export class DaycareWorld {
     this.sendLobby();
   }
 
+  /**
+   * Two people can pick the same person to be, and two identical rows on the
+   * board help nobody.
+   */
+  private uniqueStaffName(wanted: string, seat: number): string {
+    const taken = (name: string): boolean =>
+      this.staff.some((person) => person.seat !== seat && person.name === name);
+    if (!taken(wanted)) return wanted;
+    for (let n = 2; n < 10; n += 1) {
+      const tried = `${wanted} ${n}`;
+      if (!taken(tried)) return tried;
+    }
+    return wanted;
+  }
+
   private sendLobby(): void {
     if (!this.amHost) return;
     netSession.send({
@@ -1935,7 +1952,7 @@ export class DaycareWorld {
 
     switch (message.t) {
       case 'hello':
-        who.name = message.name.slice(0, 14) || `Helper ${seat}`;
+        who.name = this.uniqueStaffName(message.name.slice(0, 14) || `Helper ${seat}`, seat);
         who.skin = message.skin;
         // Rebuild them as whoever they said they were.
         this.scene.remove(who.model.root);
