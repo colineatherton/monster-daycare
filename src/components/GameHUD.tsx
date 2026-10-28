@@ -23,6 +23,22 @@ function clock(ms: number): string {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
+/** The night shift's buttons. Nothing here obeys the daytime rules. */
+const ADMIN_BUTTONS: Array<[string, string]> = [
+  ['coins', '🪙 +500 coins'],
+  ['child', '👶 Add a child'],
+  ['shadow', '🌑 Add a shadow one'],
+  ['ritual', '🦷 Add a toothy one'],
+  ['toys', '🧸 Give me a teddy'],
+  ['drawing', '🖼️ Add 3 drawings'],
+  ['mess', '🧹 Make a mess'],
+  ['clean', '✨ Clean it all up'],
+  ['happy', '😇 Everyone happy'],
+  ['calm', '🧦 Calm everything'],
+  ['endday', '🏠 Home time now'],
+  ['skipday', '⏭️ Next shift'],
+];
+
 /** What this one is up to, in a few words. */
 function rosterLine(baby: GameSnapshot['babies'][number]): string {
   if (baby.eruption === 'ritual') return 'DOING THE RITUAL';
@@ -208,6 +224,19 @@ export default function GameHUD({ onQuit }: { onQuit: () => void }) {
               {action.disabledBecause && ` — ${action.disabledBecause}`}
             </button>
           ))}
+        </div>
+      )}
+
+      {snapshot.mode === 'nightcare' && (
+        <div className="admin">
+          <div className="admin__title">🌙 Night shift</div>
+          <div className="admin__grid">
+            {ADMIN_BUTTONS.map(([what, label]) => (
+              <button key={what} className="admin__button" onClick={() => commands.current?.admin(what)}>
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

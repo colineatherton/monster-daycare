@@ -453,3 +453,61 @@
 .pill--broken {
   background: #ffd9d9;
 }
+
+/* -------------------------------------------------- the night shift */
+
+.admin {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  width: 232px;
+  background: #1b1b24;
+  color: #e9e4f0;
+  border: 4px solid #7c5cff;
+  border-radius: 14px;
+  padding: 10px;
+  pointer-events: auto;
+  box-shadow: 0 5px 0 rgba(0, 0, 0, 0.45);
+}
+
+.admin__title {
+  font-weight: 800;
+  font-size: 14px;
+  margin-bottom: 8px;
+  letter-spacing: 0.04em;
+}
+
+.admin__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+
+.admin__button {
+  font: inherit;
+  font-weight: 650;
+  font-size: 11.5px;
+  text-align: left;
+  background: #2b2b3a;
+  color: inherit;
+  border: 2px solid #7c5cff;
+  border-radius: 8px;
+  padding: 6px 7px;
+  cursor: pointer;
+}
+
+.admin__button:hover {
+  background: #7c5cff;
+}
+
+@media (max-width: 1000px) {
+  .admin {
+    width: 190px;
+    bottom: 10px;
+  }
+
+  .admin__button {
+    font-size: 10.5px;
+    padding: 7px 6px;
+  }
+}

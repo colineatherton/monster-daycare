@@ -3,6 +3,7 @@ import GameCanvas from './components/GameCanvas.tsx';
 import GameHUD from './components/GameHUD.tsx';
 import TouchControls from './components/TouchControls.tsx';
 import { prefersTouchControls } from './game/input.ts';
+import { secretFor, secretTeaser } from './game/data/secrets.ts';
 import type { SkinId } from './game/render/player.ts';
 import './App.css';
 
@@ -15,6 +16,9 @@ export default function App() {
 
   // You name your own daycare. Blank is fine; it gets a default.
   const daycareName = name.trim() || 'Monster Daycare';
+  // Two names are not just names.
+  const secret = secretFor(daycareName);
+  const teaser = secretTeaser(secret);
 
   // ?day=3 opens straight onto the first day that has an anomaly in it, which
   // saves playing through two quiet days every time you want to test the scary
@@ -49,6 +53,7 @@ export default function App() {
             placeholder="Monster Daycare"
             onChange={(event) => setName(event.target.value)}
           />
+          {teaser && <p className={`title__teaser title__teaser--${secret}`}>{teaser}</p>}
 
           <div className="title__label">Who are you?</div>
           <div className="title__skins">
@@ -80,7 +85,7 @@ export default function App() {
   }
 
   return (
-    <div className="stage">
+    <div className={`stage${secret === 'rotted' ? ' stage--rotted' : ''}`}>
       <GameCanvas daycareName={daycareName} skin={skin} firstDay={firstDay} />
       <GameHUD onQuit={() => setPlaying(false)} />
       {touch && <TouchControls />}

@@ -29,6 +29,7 @@ import { buildItem, buildDreadGlow } from './render/items.ts';
 import { thoughtBubble, textLabel } from './render/labels.ts';
 import { ITEMS, itemById, itemsOfKind } from './data/items.ts';
 import { BABY_NAMES, SPECIES } from './data/species.ts';
+import { secretFor, type SecretMode } from './data/secrets.ts';
 import { attachInput, walkVector } from './input.ts';
 import { publish, commands } from './bus.ts';
 import { music } from './audio/music.ts';
@@ -256,12 +257,16 @@ export class DaycareWorld {
   /** Which day a fresh run starts on. `?day=3` jumps straight to the anomalies. */
   private readonly firstDay: number;
 
+  /** Normally 'normal'. The two secret names change the whole shift. */
+  private readonly mode: SecretMode;
+
   constructor(
     canvas: HTMLCanvasElement,
     options: { daycareName: string; skin: SkinId; firstDay?: number },
   ) {
     this.canvas = canvas;
     this.daycareName = options.daycareName;
+    this.mode = secretFor(options.daycareName);
     this.firstDay = Math.max(1, options.firstDay ?? 1);
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -318,6 +323,7 @@ export class DaycareWorld {
         this.musicOn = !this.musicOn;
         music.setMuted(!this.musicOn);
       },
+      admin: (what) => this.admin(what),
     };
 
     music.setMuted(!this.musicOn);
@@ -360,9 +366,11 @@ export class DaycareWorld {
     const anomalies = SPECIES.filter((s) => s.anomaly !== 'none');
 
     // Day 1 and 2 have no anomalies at all. The first one turns up on day 3,
-    // once you already know where everything is.
+    // once you already know where everything is. Unless this is the rotted
+    // daycare, where there was never anything else.
     const babyCount = Math.min(2 + (day - 1), 6);
-    const anomalyCount = day < 3 ? 0 : Math.min(1 + Math.floor((day - 3) / 2), 2);
+    const anomalyCount =
+      this.mode === 'rotted' ? babyCount : day < 3 ? 0 : Math.min(1 + Math.floor((day - 3) / 2), 2);
 
     const queue: Species[] = [];
     for (let i = 0; i < babyCount - anomalyCount; i += 1) {
@@ -448,7 +456,9 @@ export class DaycareWorld {
     this.scene.add(model.root);
 
     const name =
-      species.anomaly === 'none' ? BABY_NAMES[this.nextBabyId % BABY_NAMES.length] : '???';
+      species.anomaly === 'none' || this.mode === 'rotted'
+        ? BABY_NAMES[this.nextBabyId % BABY_NAMES.length]
+        : '???';
     const nameTag = textLabel(name);
     model.root.add(nameTag);
 
@@ -459,7 +469,10 @@ export class DaycareWorld {
 
     // Anomalies go straight into the anomaly room, behind the barred door.
     // That is what the room is for, and it is why breaking out means something.
-    const room: RoomId = species.anomaly === 'none' ? 'play' : 'anomaly';
+    // In the rotted daycare they would not all fit in the anomaly room, and
+    // there would be nobody in the playroom at all.
+    const room: RoomId =
+      species.anomaly === 'none' || this.mode === 'rotted' ? 'play' : 'anomaly';
     const start =
       room === 'play'
         ? { x: PLACES.frontDoor.x + (Math.random() - 0.5) * 140, y: PLACES.frontDoor.y + 110 }
@@ -1344,6 +1357,82 @@ export class DaycareWorld {
     baby.y = PLACES.cots.y - 140;
     baby.wanderX = baby.x;
     baby.wanderY = baby.y;
+  }
+
+  /**
+   * The night shift's admin panel. Only reachable by naming the place Monster
+   * Nightcare, and it ignores every rule the daytime game has.
+   */
+  private admin(what: string): void {
+    if (this.mode !== 'nightcare') return;
+
+    const ordinary = SPECIES.filter((s) => s.anomaly === 'none');
+    const shadows = SPECIES.filter((s) => s.anomaly === 'shadow');
+    const rituals = SPECIES.filter((s) => s.anomaly === 'ritual');
+
+    switch (what) {
+      case 'coins':
+        this.coins += 500;
+        this.hint = `Money from nowhere. ${this.coins} coins.`;
+        music.coin();
+        break;
+      case 'child':
+        this.spawnBaby(ordinary[Math.floor(Math.random() * ordinary.length)]);
+        this.hint = 'A child out of thin air.';
+        break;
+      case 'shadow':
+        this.spawnBaby(shadows[0]);
+        this.hint = 'You let one of the shadow ones in on purpose.';
+        break;
+      case 'ritual':
+        this.spawnBaby(rituals[0]);
+        this.hint = 'You let one of the toothy ones in on purpose.';
+        break;
+      case 'toys':
+        // Everything in the building, in your hands, one after another.
+        this.setMop(false);
+        this.holding = itemById('teddy');
+        this.setHeldModel(buildItem(this.holding));
+        this.hint = 'Here. Have a teddy.';
+        break;
+      case 'drawing':
+        this.pendingDrawings.push(0xff5f9e, 0x7fd4a3, 0x4aa8ff);
+        this.drawings += 3;
+        this.hint = 'Three drawings, from nobody. They go up at home time.';
+        break;
+      case 'mess':
+        this.dropWrappers();
+        break;
+      case 'clean':
+        this.clearMesses();
+        this.hint = 'Spotless.';
+        break;
+      case 'happy':
+        for (const baby of this.babies) {
+          baby.happiness = 100;
+          baby.tickedIn = true;
+        }
+        this.hint = 'Everybody is delighted and on the register.';
+        break;
+      case 'calm':
+        for (const baby of this.babies) if (baby.eruption !== 'none') this.calmDown(baby);
+        this.hint = 'Everything is back in its room.';
+        break;
+      case 'endday':
+        this.dayTimeLeftMs = 1;
+        this.hint = 'Home time, early.';
+        break;
+      case 'skipday':
+        this.startDay(this.dayNumber + 1);
+        for (const baby of this.babies) this.removeBaby(baby);
+        this.babies = [];
+        this.clearQueue();
+        this.clearDroppers();
+        this.hint = `Straight on to shift ${this.dayNumber}.`;
+        break;
+      default:
+        break;
+    }
   }
 
   /** Bring an erupted anomaly back down to being somebody's child again. */
@@ -2337,6 +2426,7 @@ export class DaycareWorld {
 
     const snapshot: GameSnapshot = {
       daycareName: this.daycareName,
+      mode: this.mode,
       coins: this.coins,
       drawings: this.drawings,
       onTheWall: this.onTheWall,

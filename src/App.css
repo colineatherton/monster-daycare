@@ -100,3 +100,33 @@ kbd {
   font-family: inherit;
   font-weight: 700;
 }
+
+/* A name that turns out to mean something. */
+.title__teaser {
+  font-weight: 800;
+  font-size: 14px;
+  margin: 8px 0 0;
+  letter-spacing: 0.02em;
+}
+
+.title__teaser--rotted {
+  color: #5a5a66;
+}
+
+.title__teaser--nightcare {
+  color: var(--purple);
+}
+
+/*
+ * The rotted daycare. Filtering the whole stage catches the room and the
+ * screen furniture in one go, which is the only way to be sure nothing is
+ * left colourful.
+ */
+.stage--rotted canvas {
+  filter: grayscale(1) contrast(1.08) brightness(0.82);
+}
+
+.stage--rotted .hud {
+  /* Not quite all the way: the warnings still have to be readable. */
+  filter: grayscale(0.62) brightness(0.95);
+}

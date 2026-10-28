@@ -34,6 +34,8 @@ export interface Commands {
   /** Dismiss the home-time card and open up again tomorrow. */
   nextDay: () => void;
   toggleMusic: () => void;
+  /** Night shift only: the admin panel's buttons. */
+  admin: (what: string) => void;
 }
 
 export const commands: { current: Commands | null } = { current: null };

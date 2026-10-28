@@ -209,6 +209,52 @@ room is not for monsters.** One left in there long enough **breaks the coffee
 machine**, and until you buy a new one there is no tea — which is how you keep
 up with a building this size.
 
+## Secret names
+
+What you call your daycare is normally just a label in the corner. Two names
+are not.
+
+**The Rotted Monster Daycare.** The whole building drains to grey and black and
+white, and **every single child is an anomaly**, from the first shift — no two
+quiet days to learn the place. They keep their names, because the horror is
+what they are, not that nobody knows who they are.
+
+**Monster Nightcare.** The night shift, with the keys to everything: a panel of
+buttons that spawn coins, children, shadow ones, toothy ones, drawings and
+mess, calm everything down, make everybody happy, or skip straight to the next
+shift.
+
+Both are matched loosely, so capitals and stray spaces do not spoil it, and the
+front screen whispers something as soon as the name is right.
+
+## Wren's long game — still to design
+
+Five Easter eggs, four of which run across many shifts. The beats are hers; the
+payoffs marked **?** are the ones still to decide.
+
+### Pip, who keeps coming back
+
+| Shift 4 | A monster called Pip visits for the first time. |
+| --- | --- |
+| Shift 8 | It remembers you gave it a teddy bear. |
+| Shift 12 | It leaves a drawing of that same teddy bear on your desk. |
+| Shift 20 | You find out why it keeps coming back. **?** |
+
+Every single time, it looks exactly the same. Same name, same everything.
+
+### The teddy left behind
+
+| Shift 3 | You accidentally leave a monster's teddy behind in the playroom. |
+| --- | --- |
+| Shift 7 | The monster starts searching for it. |
+| Shift 12 | Found it → it remembers your kindness. Didn't → it tells you something else instead. **?** |
+
+### The microphone
+
+On shift 11 a monster finds a microphone and starts announcing everything. *I
+am eating a cracker. Bob just blinked.* Eventually it announces something that
+has not happened yet. **?**
+
 ## Still to decide
 
 - What is the daycare *for*? Is there a shop — better cots, a bigger fridge, a stronger

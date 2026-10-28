@@ -1,6 +1,7 @@
 /** The vocabulary of the whole game, in one page. */
 
 import type { RoomId } from '../config.ts';
+import type { SecretMode } from '../data/secrets.ts';
 
 /** What a baby monster can want. */
 export type NeedKind =
@@ -168,6 +169,8 @@ export interface Upgrades {
 /** What the renderer hands to React every frame. */
 export interface GameSnapshot {
   daycareName: string;
+  /** Which of the secret names was typed, if any. */
+  mode: SecretMode;
   coins: number;
   drawings: number;
   /** Drawings hung on the playroom wall so far. */
