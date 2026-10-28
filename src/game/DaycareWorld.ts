@@ -158,6 +158,36 @@ function doorwayInto(room: RoomId): { x: number; y: number } | null {
   }
 }
 
+/**
+ * One grown-up in the building. There is always at least one — you — and in a
+ * shared daycare there is one of these per person, each with their own hands,
+ * their own menu and their own cup of tea.
+ */
+interface Staff {
+  /** Position in the list. Seat 0 is whoever is hosting. */
+  seat: number;
+  /** Where somebody else said they were walking. Unused for seat 0. */
+  remoteMove: { x: number; y: number };
+  name: string;
+  skin: SkinId;
+  x: number;
+  y: number;
+  facing: number;
+  walkPhase: number;
+  model: ReturnType<typeof buildPlayer>;
+  holding: Item | null;
+  heldModel: THREE.Group | null;
+  holdingMop: boolean;
+  mopModel: THREE.Group | null;
+  teaMsLeft: number;
+  /** Walk over there, then do this. Each person has their own. */
+  pending: { target: ClickTarget; actionId: string } | null;
+  /** Whose menu is open, for this person only. */
+  menuTarget: ClickTarget | null;
+  /** What they were last told, shown on their own screen. */
+  hint: string;
+}
+
 interface BabyEntity extends Baby {
   model: BabyModel;
   /** Bob, on the shift he starts looking for his teddy. Nothing settles him. */
@@ -203,14 +233,13 @@ export class DaycareWorld {
   private readonly ambient: THREE.AmbientLight;
   private readonly sun: THREE.DirectionalLight;
 
-  private player!: ReturnType<typeof buildPlayer>;
-  private playerX: number = PLAYER.spawnX;
-  private playerY: number = PLAYER.spawnY;
-  private playerFacing = 0;
-  private playerWalkPhase = 0;
-  private holding: Item | null = null;
-  private heldModel: THREE.Group | null = null;
-  private teaMsLeft = 0;
+  /** Everybody working in the building. Seat 0 is the person at this screen. */
+  private staff: Staff[] = [];
+
+  /** The grown-up at this keyboard. */
+  private get me(): Staff {
+    return this.staff[0];
+  }
 
   private babies: BabyEntity[] = [];
   private nextBabyId = 1;
@@ -262,8 +291,6 @@ export class DaycareWorld {
   /** Wrappers on the floor, waiting for the mop. */
   private messes: Array<{ id: string; x: number; y: number; group: THREE.Group }> = [];
   private nextMessId = 1;
-  private holdingMop = false;
-  private mopModel: THREE.Group | null = null;
 
   /** Bob's teddy, lying on the playroom floor where you left it. */
   private lostTeddy: { x: number; y: number; group: THREE.Group } | null = null;
@@ -282,13 +309,10 @@ export class DaycareWorld {
     null;
   private prophecyMsLeft = 0;
 
-  private menuTarget: ClickTarget | null = null;
-  private pending: { target: ClickTarget; actionId: string } | null = null;
   private dayReport: { dayNumber: number; verdicts: ParentVerdict[]; earned: number } | null = null;
   private gameOver: { reason: string; detail: string } | null = null;
   private musicOn = true;
   private lastHeartbeatAt = 0;
-  private hint = 'Click a monster, or click a cupboard to fetch something.';
 
   private disposeInput: () => void;
   private frame = 0;
@@ -345,19 +369,19 @@ export class DaycareWorld {
     this.scene.add(this.room.root);
     this.scene.add(this.ring);
 
-    this.setSkin(options.skin);
+    this.addStaff(0, 'You', options.skin);
     this.startDay(this.firstDay);
 
     this.disposeInput = attachInput();
     commands.current = {
-      chooseMenuAction: (id) => this.chooseMenuAction(id),
+      chooseMenuAction: (id) => this.chooseMenuAction(this.me, id),
       selectBaby: (babyId) => {
         // The building is far bigger than the screen, so the list down the
         // side is the only way to reach a child in another room.
-        if (this.babyById(babyId)) this.menuTarget = { kind: 'baby', id: babyId };
+        if (this.babyById(babyId)) this.me.menuTarget = { kind: 'baby', id: babyId };
       },
       closeMenu: () => {
-        this.menuTarget = null;
+        this.me.menuTarget = null;
       },
       restart: () => this.restart(),
       nextDay: () => {
@@ -384,16 +408,47 @@ export class DaycareWorld {
 
   /* ------------------------------------------------------------ lifecycle */
 
-  private setSkin(skin: SkinId): void {
-    if (this.player) {
-      this.scene.remove(this.player.root);
-      disposeSubtree(this.player.root);
-    }
-    this.player = buildPlayer(skin);
-    this.player.root.traverse((child) => {
+  /** Put somebody new on the staff, with their own hands and their own menu. */
+  private addStaff(seat: number, name: string, skin: SkinId): Staff {
+    const model = buildPlayer(skin);
+    model.root.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) child.castShadow = true;
     });
-    this.scene.add(this.player.root);
+    this.scene.add(model.root);
+
+    const member: Staff = {
+      seat,
+      remoteMove: { x: 0, y: 0 },
+      name,
+      skin,
+      // Everybody starts just inside the front door, spread out a little.
+      x: PLAYER.spawnX + (seat - 0.5) * 90,
+      y: PLAYER.spawnY,
+      facing: 0,
+      walkPhase: 0,
+      model,
+      holding: null,
+      heldModel: null,
+      holdingMop: false,
+      mopModel: null,
+      teaMsLeft: 0,
+      pending: null,
+      menuTarget: null,
+      hint: 'Click a monster, or click a cupboard to fetch something.',
+    };
+    this.staff[seat] = member;
+    return member;
+  }
+
+  private removeStaff(seat: number): void {
+    const member = this.staff[seat];
+    if (!member) return;
+    this.scene.remove(member.model.root);
+    disposeSubtree(member.model.root);
+    this.staff.splice(seat, 1);
+    this.staff.forEach((person, index) => {
+      person.seat = index;
+    });
   }
 
   private startDay(day: number): void {
@@ -463,7 +518,7 @@ export class DaycareWorld {
     this.coins = 0;
     this.drawings = 0;
     this.pendingDrawings = [];
-    this.teaMsLeft = 0;
+    this.me.teaMsLeft = 0;
     this.upgrades = {
       shoes: 0,
       coffeeMachine: true,
@@ -477,13 +532,13 @@ export class DaycareWorld {
     this.onTheWall = 0;
     this.gameOver = null;
     this.dayReport = null;
-    this.holding = null;
-    this.setHeldModel(null);
-    this.playerX = PLAYER.spawnX;
-    this.playerY = PLAYER.spawnY;
-    this.menuTarget = null;
-    this.pending = null;
-    this.hint = 'Click a monster, or click a cupboard to fetch something.';
+    this.me.holding = null;
+    this.setHeldModel(this.me, null);
+    this.me.x = PLAYER.spawnX;
+    this.me.y = PLAYER.spawnY;
+    this.me.menuTarget = null;
+    this.me.pending = null;
+    this.me.hint = 'Click a monster, or click a cupboard to fetch something.';
     // Losing does not cost you the story. You open up again on the same shift.
     this.startDay(Math.max(1, this.story.shiftsWorked + 1));
   }
@@ -494,6 +549,7 @@ export class DaycareWorld {
     window.removeEventListener('resize', this.resize);
     this.canvas.removeEventListener('pointerdown', this.onPointerDown);
     this.disposeInput();
+    while (this.staff.length > 0) this.removeStaff(this.staff.length - 1);
     music.stop();
     commands.current = null;
     disposeSubtree(this.scene);
@@ -576,6 +632,7 @@ export class DaycareWorld {
       wantsWaking: false,
       happiness: 100,
       carried: false,
+      carriedBy: null,
       holdingHands: false,
       eruption: 'none',
       eruptionMsLeft: 0,
@@ -694,22 +751,22 @@ export class DaycareWorld {
 
     const hit = this.raycaster.intersectObjects(pickable, false)[0];
     if (!hit) {
-      this.menuTarget = null;
+      this.me.menuTarget = null;
       return;
     }
 
     const babyId = hit.object.userData.babyId as string | undefined;
     if (babyId) {
-      this.menuTarget = { kind: 'baby', id: babyId };
+      this.me.menuTarget = { kind: 'baby', id: babyId };
       return;
     }
     const parentId = hit.object.userData.parentId as string | undefined;
     if (parentId) {
-      this.menuTarget = { kind: 'parent', id: parentId };
+      this.me.menuTarget = { kind: 'parent', id: parentId };
       return;
     }
     const target = hit.object.userData.target as ClickTarget | undefined;
-    this.menuTarget = target ? { ...target } : null;
+    this.me.menuTarget = target ? { ...target } : null;
   };
 
   private babyById(id: string | undefined): BabyEntity | undefined {
@@ -754,20 +811,20 @@ export class DaycareWorld {
   private targetPosition(target: ClickTarget): { x: number; y: number } {
     if (target.kind === 'baby') {
       const baby = this.babyById(target.id);
-      return baby ? { x: baby.x, y: baby.y } : { x: this.playerX, y: this.playerY };
+      return baby ? { x: baby.x, y: baby.y } : { x: this.me.x, y: this.me.y };
     }
     if (target.kind === 'parent') {
       const parent = this.parentById(target.id);
-      return parent ? { x: parent.x, y: parent.y } : { x: this.playerX, y: this.playerY };
+      return parent ? { x: parent.x, y: parent.y } : { x: this.me.x, y: this.me.y };
     }
     if (target.kind === 'mess') {
       const mess = this.messes.find((m) => m.id === target.id);
-      return mess ? { x: mess.x, y: mess.y } : { x: this.playerX, y: this.playerY };
+      return mess ? { x: mess.x, y: mess.y } : { x: this.me.x, y: this.me.y };
     }
     if (target.kind === 'lostteddy') {
       return this.lostTeddy
         ? { x: this.lostTeddy.x, y: this.lostTeddy.y }
-        : { x: this.playerX, y: this.playerY };
+        : { x: this.me.x, y: this.me.y };
     }
     const place = this.placeFor(target.kind);
     return { x: place.x, y: place.y + place.h / 2 + 70 };
@@ -786,17 +843,18 @@ export class DaycareWorld {
     return null;
   }
 
-  private carriedBaby(): BabyEntity | undefined {
-    return this.babies.find((baby) => baby.carried);
+  private carriedBaby(who: Staff): BabyEntity | undefined {
+    return this.babies.find((baby) => baby.carried && baby.carriedBy === who.seat);
   }
 
   private menuFor(
+    who: Staff,
     target: ClickTarget,
   ): { title: string; subtitle: string; actions: MenuAction[] } | null {
     if (target.kind === 'parent') {
       const parent = this.parentById(target.id);
       if (!parent) return null;
-      const carried = this.carriedBaby();
+      const carried = this.carriedBaby(who);
       // Worked out fresh every time, because a child can be eaten *during*
       // home time, after the queue was built.
       const childHere = this.babyById(parent.babyId) !== undefined;
@@ -809,7 +867,7 @@ export class DaycareWorld {
         actions.push({
           id: 'sorry',
           label: '🧦 Give them a sock instead',
-          disabledBecause: this.holding?.id === 'sock' ? undefined : 'fetch a sock from the fridge',
+          disabledBecause: who.holding?.id === 'sock' ? undefined : 'fetch a sock from the fridge',
         });
       }
       if (actions.length === 0) {
@@ -843,7 +901,7 @@ export class DaycareWorld {
         };
       }
       if (baby.eruption === 'hunting' || baby.eruption === 'angry') {
-        const hasSock = this.holding?.id === 'sock';
+        const hasSock = who.holding?.id === 'sock';
         return {
           title: 'IT IS LOOSE',
           subtitle: 'The only thing that calms it down is a sock.',
@@ -869,7 +927,7 @@ export class DaycareWorld {
               label: '🍼 Give it its dummy',
               disabledBecause: !baby.wantsWaking
                 ? 'it is still asleep'
-                : this.holding?.kind === 'dummy'
+                : who.holding?.kind === 'dummy'
                   ? undefined
                   : 'fetch a dummy from the nap corner',
             },
@@ -879,8 +937,8 @@ export class DaycareWorld {
 
       const actions: MenuAction[] = [];
       if (baby.hasDrawing) actions.push({ id: 'takedrawing', label: '🖼️ Take their drawing' });
-      if (this.holding) {
-        actions.push({ id: `give:${this.holding.id}`, label: `Give it ${this.holding.name}` });
+      if (who.holding) {
+        actions.push({ id: `give:${who.holding.id}`, label: `Give it ${who.holding.name}` });
       }
       actions.push({ id: 'cuddle', label: 'Give it a cuddle' });
       actions.push({
@@ -921,7 +979,7 @@ export class DaycareWorld {
       case 'toybox':
         return { title: 'The toy box', subtitle: 'For a bored monster.', actions: take('toy') };
       case 'cots': {
-        const carried = this.carriedBaby();
+        const carried = this.carriedBaby(who);
         const freeBed = this.freeBed();
         const actions: MenuAction[] = [
           {
@@ -1014,25 +1072,25 @@ export class DaycareWorld {
       case 'mess':
         return {
           title: 'Somebody\'s lunch',
-          subtitle: this.holdingMop
+          subtitle: who.holdingMop
             ? 'Wrappers all over the floor.'
             : 'Wrappers all over the floor. You need the mop.',
           actions: [
             {
               id: `mop:${target.id}`,
               label: '🧹 Mop it up',
-              disabledBecause: this.holdingMop ? undefined : 'fetch the mop from the bucket',
+              disabledBecause: who.holdingMop ? undefined : 'fetch the mop from the bucket',
             },
           ],
         };
       default:
         return {
           title: 'The mop bucket',
-          subtitle: this.holdingMop ? 'You already have the mop.' : 'For the mess after lunch.',
+          subtitle: who.holdingMop ? 'You already have the mop.' : 'For the mess after lunch.',
           actions: [
             {
-              id: this.holdingMop ? 'putmop' : 'takemop',
-              label: this.holdingMop ? 'Put the mop back' : '🧹  Take the mop',
+              id: who.holdingMop ? 'putmop' : 'takemop',
+              label: who.holdingMop ? 'Put the mop back' : '🧹  Take the mop',
             },
           ],
         };
@@ -1092,7 +1150,7 @@ export class DaycareWorld {
   private buy(what: string): void {
     const spend = (price: number): boolean => {
       if (this.coins < price) {
-        this.hint = `That costs ${price} coins and you have ${this.coins}.`;
+        this.me.hint = `That costs ${price} coins and you have ${this.coins}.`;
         music.buzz();
         return false;
       }
@@ -1106,54 +1164,54 @@ export class DaycareWorld {
         if (this.upgrades.coffeeMachine) return;
         if (!spend(COFFEE.price)) return;
         this.upgrades.coffeeMachine = true;
-        this.hint = 'A new coffee machine. Tea is back on.';
+        this.me.hint = 'A new coffee machine. Tea is back on.';
         break;
       case 'shoes':
         if (this.upgrades.shoes >= SHOP.shoesMax) return;
         if (!spend(SHOP.shoesPrice)) return;
         this.upgrades.shoes += 1;
-        this.hint = `New shoes. That is pair ${this.upgrades.shoes} of ${SHOP.shoesMax}.`;
+        this.me.hint = `New shoes. That is pair ${this.upgrades.shoes} of ${SHOP.shoesMax}.`;
         break;
       case 'sockDrawer':
         if (this.upgrades.sockDrawer) return;
         if (!spend(SHOP.sockDrawerPrice)) return;
         this.upgrades.sockDrawer = true;
         this.room.sockDrawer.visible = true;
-        this.hint = 'A sock drawer, right outside the anomaly room. Much better.';
+        this.me.hint = 'A sock drawer, right outside the anomaly room. Much better.';
         break;
       case 'strongDoor':
         if (this.upgrades.strongDoor) return;
         if (!spend(SHOP.strongDoorPrice)) return;
         this.upgrades.strongDoor = true;
-        this.hint = `A stronger door. You now get ${Math.round(this.fuseLengthMs() / 1000)} seconds instead of ${ANOMALY.fuseMs / 1000}.`;
+        this.me.hint = `A stronger door. You now get ${Math.round(this.fuseLengthMs() / 1000)} seconds instead of ${ANOMALY.fuseMs / 1000}.`;
         break;
       case 'teapot':
         if (this.upgrades.teapot) return;
         if (!spend(SHOP.teapotPrice)) return;
         this.upgrades.teapot = true;
-        this.hint = 'A bigger teapot. Tea lasts twice as long now.';
+        this.me.hint = 'A bigger teapot. Tea lasts twice as long now.';
         break;
       case 'nicerToys':
         if (this.upgrades.nicerToys) return;
         if (!spend(SHOP.nicerToysPrice)) return;
         this.upgrades.nicerToys = true;
-        this.hint = 'Nicer toys. They will be much happier with those.';
+        this.me.hint = 'Nicer toys. They will be much happier with those.';
         break;
       default:
         break;
     }
   }
 
-  private chooseMenuAction(actionId: string): void {
-    const target = this.menuTarget;
-    this.menuTarget = null;
+  private chooseMenuAction(who: Staff, actionId: string): void {
+    const target = who.menuTarget;
+    who.menuTarget = null;
     if (!target) return;
     if (actionId === 'nothing') return;
-    this.pending = { target, actionId };
+    who.pending = { target, actionId };
   }
 
   /** Close enough to act? */
-  private withinReach(target: ClickTarget): boolean {
+  private withinReach(who: Staff, target: ClickTarget): boolean {
     if (
       target.kind === 'baby' ||
       target.kind === 'parent' ||
@@ -1161,18 +1219,18 @@ export class DaycareWorld {
       target.kind === 'lostteddy'
     ) {
       const spot = this.targetPosition(target);
-      return Math.hypot(spot.x - this.playerX, spot.y - this.playerY) <= PLAYER.reach;
+      return Math.hypot(spot.x - who.x, spot.y - who.y) <= PLAYER.reach;
     }
     const place = this.placeFor(target.kind);
-    const dx = Math.max(Math.abs(this.playerX - place.x) - place.w / 2, 0);
-    const dy = Math.max(Math.abs(this.playerY - place.y) - place.h / 2, 0);
+    const dx = Math.max(Math.abs(who.x - place.x) - place.w / 2, 0);
+    const dy = Math.max(Math.abs(who.y - place.y) - place.h / 2, 0);
     return Math.hypot(dx, dy) <= PLAYER.reach;
   }
 
-  private performPending(): void {
-    if (!this.pending) return;
-    const { target, actionId } = this.pending;
-    this.pending = null;
+  private performPending(who: Staff): void {
+    if (!who.pending) return;
+    const { target, actionId } = who.pending;
+    who.pending = null;
 
     if (actionId.startsWith('buy:')) {
       this.buy(actionId.slice(4));
@@ -1185,7 +1243,7 @@ export class DaycareWorld {
       arrival.tickedIn = true;
       this.coins += 5;
       const left = this.babies.filter((baby) => !baby.tickedIn).length;
-      this.hint = left
+      who.hint = left
         ? `${arrival.name} is on the register. ${left} to go.`
         : `${arrival.name} is on the register. Everybody is in.`;
       music.coin();
@@ -1196,19 +1254,19 @@ export class DaycareWorld {
       const item = itemById(actionId.slice(5));
       if (item.kind === 'tea') {
         if (!this.upgrades.coffeeMachine) {
-          this.hint = 'The coffee machine is broken. The shop sells a new one.';
+          who.hint = 'The coffee machine is broken. The shop sells a new one.';
           music.buzz();
           return;
         }
-        this.teaMsLeft = PLAYER.teaMs * (this.upgrades.teapot ? 2 : 1);
-        this.hint = 'Tea. You can move a lot faster for the next half minute.';
+        who.teaMsLeft = PLAYER.teaMs * (this.upgrades.teapot ? 2 : 1);
+        who.hint = 'Tea. You can move a lot faster for the next half minute.';
         music.coin();
         return;
       }
-      this.setMop(false);
-      this.holding = item;
-      this.setHeldModel(buildItem(item));
-      this.hint = `You are carrying ${item.name}. Click a monster to give it over.`;
+      this.setMop(who, false);
+      who.holding = item;
+      this.setHeldModel(who, buildItem(item));
+      who.hint = `You are carrying ${item.name}. Click a monster to give it over.`;
       return;
     }
 
@@ -1218,7 +1276,7 @@ export class DaycareWorld {
     }
 
     if (actionId.startsWith('mop:')) {
-      if (!this.holdingMop) return;
+      if (!who.holdingMop) return;
       const id = actionId.slice(4);
       const index = this.messes.findIndex((m) => m.id === id);
       if (index === -1) return;
@@ -1226,7 +1284,7 @@ export class DaycareWorld {
       this.scene.remove(mess.group);
       disposeSubtree(mess.group);
       this.coins += LUNCH.moppingCoins;
-      this.hint =
+      who.hint =
         this.messes.length === 0
           ? 'Floor spotless. Nicely done.'
           : `Mopped. ${this.messes.length} more to go.`;
@@ -1238,38 +1296,38 @@ export class DaycareWorld {
       this.setLostTeddy(false);
       this.story.teddyFound = true;
       saveStory(this.story);
-      this.setMop(false);
-      this.holding = itemById('teddy');
-      this.setHeldModel(buildItem(this.holding));
-      this.hint = 'A teddy, behind the rug. Somebody has been missing this.';
+      this.setMop(who, false);
+      who.holding = itemById('teddy');
+      this.setHeldModel(who, buildItem(who.holding));
+      who.hint = 'A teddy, behind the rug. Somebody has been missing this.';
       music.coin();
       return;
     }
 
     if (actionId === 'takemop') {
       // The mop needs both hands, so it replaces whatever you were carrying.
-      this.holding = null;
-      this.setHeldModel(null);
-      this.setMop(true);
-      this.hint = 'You have the mop. Click any mess to clean it up.';
+      who.holding = null;
+      this.setHeldModel(who, null);
+      this.setMop(who, true);
+      who.hint = 'You have the mop. Click any mess to clean it up.';
       return;
     }
 
     if (actionId === 'putmop') {
-      this.setMop(false);
-      this.hint = 'Mop back in the bucket.';
+      this.setMop(who, false);
+      who.hint = 'Mop back in the bucket.';
       return;
     }
 
     if (actionId === 'tuckin') {
-      const carried = this.carriedBaby();
+      const carried = this.carriedBaby(who);
       if (!carried) {
-        this.hint = 'Pick a monster up first, then bring it over here.';
+        who.hint = 'Pick a monster up first, then bring it over here.';
         return;
       }
       const bed = this.freeBed();
       if (bed === null) {
-        this.hint = 'Every bed is full.';
+        who.hint = 'Every bed is full.';
         music.buzz();
         return;
       }
@@ -1288,11 +1346,11 @@ export class DaycareWorld {
       if (carried.need === 'sleepy') {
         this.meetNeed(carried, carried.species.anomaly === 'none' ? 10 : 10 * ANOMALY.payMultiplier);
         carried.happiness = Math.min(100, carried.happiness + BEDS.tuckedInReward);
-        this.hint = `${carried.name} is tucked up. It will want its dummy in a minute.`;
+        who.hint = `${carried.name} is tucked up. It will want its dummy in a minute.`;
       } else {
         carried.need = null;
         carried.wantedItemId = null;
-        this.hint = `${carried.name} is in bed, though it was not especially sleepy.`;
+        who.hint = `${carried.name} is in bed, though it was not especially sleepy.`;
       }
       music.coin();
       return;
@@ -1302,10 +1360,10 @@ export class DaycareWorld {
     if (!baby) return;
 
     if (actionId.startsWith('give:')) {
-      const item = this.holding;
+      const item = who.holding;
       if (!item) return;
-      this.holding = null;
-      this.setHeldModel(null);
+      who.holding = null;
+      this.setHeldModel(who, null);
 
       // The one thing he is looking for.
       if (baby.searching && item.id === 'teddy') {
@@ -1316,7 +1374,7 @@ export class DaycareWorld {
         this.story.teddyFound = true;
         saveStory(this.story);
         this.coins += 40;
-        this.hint = `${baby.name} has it back. He will not forget that.`;
+        who.hint = `${baby.name} has it back. He will not forget that.`;
         music.coin();
         return;
       }
@@ -1330,7 +1388,7 @@ export class DaycareWorld {
           baby.needAgeMs = 0;
           baby.drawingMs = BABIES.drawingMs;
           baby.happiness = Math.min(100, baby.happiness + 8);
-          this.hint = `${baby.name} is colouring. Come back for the picture.`;
+          who.hint = `${baby.name} is colouring. Come back for the picture.`;
           music.coin();
           return;
         }
@@ -1343,12 +1401,12 @@ export class DaycareWorld {
           baby.species.anomaly === 'none' ? 10 : 10 * ANOMALY.payMultiplier,
           cheering,
         );
-        this.hint = `${baby.name} wanted that. Lovely.`;
+        who.hint = `${baby.name} wanted that. Lovely.`;
         music.coin();
       } else {
         baby.happiness = Math.max(0, baby.happiness - BABIES.wrongThingPenalty);
         const wanted = this.wantedItem(baby);
-        this.hint = wanted
+        who.hint = wanted
           ? `${baby.name} did not want that — it asked for ${wanted.name} ${wanted.emoji}.`
           : `${baby.name} did not want that.`;
         music.buzz();
@@ -1359,38 +1417,38 @@ export class DaycareWorld {
     switch (actionId) {
       case 'wake': {
         if (!baby.wantsWaking) {
-          this.hint = `${baby.name} is still fast asleep.`;
+          who.hint = `${baby.name} is still fast asleep.`;
           return;
         }
-        if (this.holding?.kind !== 'dummy') {
-          this.hint = 'You need a dummy from the nap corner.';
+        if (who.holding?.kind !== 'dummy') {
+          who.hint = 'You need a dummy from the nap corner.';
           return;
         }
-        this.holding = null;
-        this.setHeldModel(null);
+        who.holding = null;
+        this.setHeldModel(who, null);
         this.wakeUp(baby);
         this.coins += 10;
-        this.hint = `${baby.name} is awake, and in a very good mood.`;
+        who.hint = `${baby.name} is awake, and in a very good mood.`;
         music.coin();
         break;
       }
       case 'sock': {
-        if (this.holding?.id !== 'sock') {
-          this.hint = 'You need a sock from the fridge.';
+        if (who.holding?.id !== 'sock') {
+          who.hint = 'You need a sock from the fridge.';
           return;
         }
-        this.holding = null;
-        this.setHeldModel(null);
+        who.holding = null;
+        this.setHeldModel(who, null);
         this.calmDown(baby);
         this.coins += ANOMALY.sockCoins;
-        this.hint = 'It took the sock and calmed right down. Back to the anomaly room with it.';
+        who.hint = 'It took the sock and calmed right down. Back to the anomaly room with it.';
         music.coin();
         break;
       }
       case 'nappy': {
         this.calmDown(baby);
         this.coins += ANOMALY.nappyCoins;
-        this.hint = 'You changed its nappy. The ritual stopped. Everyone is fine.';
+        who.hint = 'You changed its nappy. The ritual stopped. Everyone is fine.';
         music.coin();
         break;
       }
@@ -1402,39 +1460,48 @@ export class DaycareWorld {
         this.coins += BABIES.drawingCoins;
         this.drawings += 1;
         this.pendingDrawings.push(baby.species.colour);
-        this.hint = `${baby.name} gave you their drawing. It goes up on the wall at home time.`;
+        who.hint = `${baby.name} gave you their drawing. It goes up on the wall at home time.`;
         music.coin();
         break;
       case 'cuddle':
         if (baby.need === 'sad') {
           this.meetNeed(baby, baby.species.anomaly === 'none' ? 8 : 8 * ANOMALY.payMultiplier);
-          this.hint = `${baby.name} feels much better.`;
+          who.hint = `${baby.name} feels much better.`;
           music.coin();
         } else {
           baby.happiness = Math.min(100, baby.happiness + 6);
-          this.hint = `${baby.name} enjoyed that, but it wanted something else.`;
+          who.hint = `${baby.name} enjoyed that, but it wanted something else.`;
         }
         break;
       case 'hold':
         baby.holdingHands = true;
         for (const other of this.babies) if (other !== baby) other.holdingHands = false;
-        this.hint = `${baby.name} is holding your hand and following you about.`;
+        who.hint = `${baby.name} is holding your hand and following you about.`;
         break;
       case 'letgo':
         baby.holdingHands = false;
         break;
       case 'pickup':
-        for (const other of this.babies) other.carried = false;
+        // Only ever one child per pair of arms, and only out of arms that are
+        // yours: another grown-up can be carrying somebody else.
+        for (const other of this.babies) {
+          if (other.carriedBy === who.seat) {
+            other.carried = false;
+            other.carriedBy = null;
+          }
+        }
         baby.carried = true;
+        baby.carriedBy = who.seat;
         baby.holdingHands = false;
-        this.hint = this.homeTime
+        who.hint = this.homeTime
           ? `You have ${baby.name}. Find their own parent.`
           : `You picked ${baby.name} up.`;
         break;
       case 'putdown':
         baby.carried = false;
-        baby.x = this.playerX;
-        baby.y = this.playerY + 60;
+        baby.carriedBy = null;
+        baby.x = who.x;
+        baby.y = who.y + 60;
         baby.room = roomAt(baby.x, baby.y);
         baby.wanderX = baby.x;
         baby.wanderY = baby.y;
@@ -1504,54 +1571,54 @@ export class DaycareWorld {
     switch (what) {
       case 'coins':
         this.coins += 500;
-        this.hint = `Money from nowhere. ${this.coins} coins.`;
+        this.me.hint = `Money from nowhere. ${this.coins} coins.`;
         music.coin();
         break;
       case 'child':
         this.spawnBaby(ordinary[Math.floor(Math.random() * ordinary.length)]);
-        this.hint = 'A child out of thin air.';
+        this.me.hint = 'A child out of thin air.';
         break;
       case 'shadow':
         this.spawnBaby(shadows[0]);
-        this.hint = 'You let one of the shadow ones in on purpose.';
+        this.me.hint = 'You let one of the shadow ones in on purpose.';
         break;
       case 'ritual':
         this.spawnBaby(rituals[0]);
-        this.hint = 'You let one of the toothy ones in on purpose.';
+        this.me.hint = 'You let one of the toothy ones in on purpose.';
         break;
       case 'toys':
         // Everything in the building, in your hands, one after another.
-        this.setMop(false);
-        this.holding = itemById('teddy');
-        this.setHeldModel(buildItem(this.holding));
-        this.hint = 'Here. Have a teddy.';
+        this.setMop(this.me, false);
+        this.me.holding = itemById('teddy');
+        this.setHeldModel(this.me, buildItem(this.me.holding));
+        this.me.hint = 'Here. Have a teddy.';
         break;
       case 'drawing':
         this.pendingDrawings.push(0xff5f9e, 0x7fd4a3, 0x4aa8ff);
         this.drawings += 3;
-        this.hint = 'Three drawings, from nobody. They go up at home time.';
+        this.me.hint = 'Three drawings, from nobody. They go up at home time.';
         break;
       case 'mess':
         this.dropWrappers();
         break;
       case 'clean':
         this.clearMesses();
-        this.hint = 'Spotless.';
+        this.me.hint = 'Spotless.';
         break;
       case 'happy':
         for (const baby of this.babies) {
           baby.happiness = 100;
           baby.tickedIn = true;
         }
-        this.hint = 'Everybody is delighted and on the register.';
+        this.me.hint = 'Everybody is delighted and on the register.';
         break;
       case 'calm':
         for (const baby of this.babies) if (baby.eruption !== 'none') this.calmDown(baby);
-        this.hint = 'Everything is back in its room.';
+        this.me.hint = 'Everything is back in its room.';
         break;
       case 'endday':
         this.dayTimeLeftMs = 1;
-        this.hint = 'Home time, early.';
+        this.me.hint = 'Home time, early.';
         break;
       case 'skipday':
         this.startDay(this.dayNumber + 1);
@@ -1559,7 +1626,7 @@ export class DaycareWorld {
         this.babies = [];
         this.clearQueue();
         this.clearDroppers();
-        this.hint = `Straight on to shift ${this.dayNumber}.`;
+        this.me.hint = `Straight on to shift ${this.dayNumber}.`;
         break;
       default:
         break;
@@ -1604,7 +1671,7 @@ export class DaycareWorld {
         pip.tickedIn = true;
         this.giveProp(pip, 'teddy');
       }
-      this.hint = 'The front door has not opened yet. Pip is already here.';
+      this.me.hint = 'The front door has not opened yet. Pip is already here.';
     }
   }
 
@@ -1695,7 +1762,7 @@ export class DaycareWorld {
         this.story.bobTurned = true;
         saveStory(this.story);
         this.becomeShadow(bob);
-        this.hint = 'Bob has stopped looking for it.';
+        this.me.hint = 'Bob has stopped looking for it.';
         music.dread();
       }
     }
@@ -1762,7 +1829,11 @@ export class DaycareWorld {
         lines.push(`I am not going to say anything about ${someone.name}.`);
       }
     }
-    if (this.holding) lines.push(`The teacher is carrying ${this.holding.name}. For some reason.`);
+    for (const person of this.staff) {
+      if (person.holding) {
+        lines.push(`${person.name} is carrying ${person.holding.name}. For some reason.`);
+      }
+    }
     if (this.messes.length > 0) lines.push(`There are ${this.messes.length} things on the floor.`);
     if (this.lostTeddy) lines.push('There is something behind the rug.');
     lines.push(`It is shift ${this.dayNumber}. It has been shift ${this.dayNumber} all day.`);
@@ -1848,13 +1919,13 @@ export class DaycareWorld {
     this.coins += coins;
   }
 
-  private setHeldModel(model: THREE.Group | null): void {
-    if (this.heldModel) {
-      this.player.hands.remove(this.heldModel);
-      disposeSubtree(this.heldModel);
+  private setHeldModel(who: Staff, model: THREE.Group | null): void {
+    if (who.heldModel) {
+      who.model.hands.remove(who.heldModel);
+      disposeSubtree(who.heldModel);
     }
-    this.heldModel = model;
-    if (model) this.player.hands.add(model);
+    who.heldModel = model;
+    if (model) who.model.hands.add(model);
   }
 
   /* ------------------------------------------------------- the anomalies */
@@ -1886,7 +1957,7 @@ export class DaycareWorld {
       baby.eruptionMsLeft = ANOMALY.ritualMs;
       baby.carried = false;
       baby.holdingHands = false;
-      this.hint = 'IT IS DOING THE RITUAL. CHANGE ITS NAPPY.';
+      this.me.hint = 'IT IS DOING THE RITUAL. CHANGE ITS NAPPY.';
       return;
     }
 
@@ -1896,7 +1967,7 @@ export class DaycareWorld {
     baby.carried = false;
     baby.holdingHands = false;
     if (!this.startHunting(baby)) this.noOneLeft(baby);
-    this.hint = 'IT BROKE THE DOOR DOWN. Get a sock from the fridge, fast.';
+    this.me.hint = 'IT BROKE THE DOOR DOWN. Get a sock from the fridge, fast.';
   }
 
   /** Pick somebody to walk towards. Returns false if there is nobody left. */
@@ -1928,7 +1999,7 @@ export class DaycareWorld {
     this.removeBaby(victim);
     this.babies = this.babies.filter((baby) => baby !== victim);
     music.dread();
-    this.hint = `It ate ${victim.name}. Get a sock before it does that again.`;
+    this.me.hint = `It ate ${victim.name}. Get a sock before it does that again.`;
 
     hunter.eruption = 'angry';
     hunter.huntingId = null;
@@ -1959,10 +2030,10 @@ export class DaycareWorld {
       this.setLostTeddy(true);
     }
     this.clearDroppers();
-    this.holding = null;
-    this.setHeldModel(null);
-    this.menuTarget = null;
-    this.pending = null;
+    this.me.holding = null;
+    this.setHeldModel(this.me, null);
+    this.me.menuTarget = null;
+    this.me.pending = null;
 
     // One parent per child who was dropped off this morning, including the
     // ones that are no longer here.
@@ -2015,7 +2086,7 @@ export class DaycareWorld {
       });
     });
 
-    this.hint = 'Home time. Carry each child to their own parent — and no swapping.';
+    this.me.hint = 'Home time. Carry each child to their own parent — and no swapping.';
   }
 
   private handToParent(parentId: string | undefined, actionId: string): void {
@@ -2023,26 +2094,26 @@ export class DaycareWorld {
     if (!parent) return;
 
     if (actionId === 'sorry') {
-      if (this.holding?.id !== 'sock') {
-        this.hint = 'You need a sock from the fridge first.';
+      if (this.me.holding?.id !== 'sock') {
+        this.me.hint = 'You need a sock from the fridge first.';
         return;
       }
       // A sock is accepted by anybody whose child is not in the building —
       // including one eaten after the parents turned up. Without this the
       // queue can reach a parent nobody can satisfy, and the day never ends.
       if (this.babyById(parent.babyId)) {
-        this.hint = `They do not want a sock. ${parent.babyName} is still here.`;
+        this.me.hint = `They do not want a sock. ${parent.babyName} is still here.`;
         music.buzz();
         return;
       }
-      this.holding = null;
-      this.setHeldModel(null);
+      this.me.holding = null;
+      this.setHeldModel(this.me, null);
       this.verdicts.push({
         babyName: parent.babyName,
         happy: false,
         said: 'This is a sock. Where is my child?',
       });
-      this.hint = `You gave ${parent.babyName}'s parent a sock. They took it very badly.`;
+      this.me.hint = `You gave ${parent.babyName}'s parent a sock. They took it very badly.`;
       music.buzz();
       this.removeParent(parent);
       return;
@@ -2053,7 +2124,7 @@ export class DaycareWorld {
     if (!baby || !baby.carried) return;
 
     if (baby.id !== parent.babyId) {
-      this.hint = `“That is not my child.” They are waiting for ${parent.babyName}.`;
+      this.me.hint = `“That is not my child.” They are waiting for ${parent.babyName}.`;
       music.buzz();
       return;
     }
@@ -2068,7 +2139,7 @@ export class DaycareWorld {
     }
     this.removeBaby(baby);
     this.babies = this.babies.filter((other) => other !== baby);
-    this.hint = `${parent.babyName} has gone home. “${verdict.said}”`;
+    this.me.hint = `${parent.babyName} has gone home. “${verdict.said}”`;
     this.removeParent(parent);
   }
 
@@ -2198,22 +2269,29 @@ export class DaycareWorld {
   }
 
   private stepPlayer(dt: number, ms: number): void {
-    if (this.teaMsLeft > 0) this.teaMsLeft = Math.max(0, this.teaMsLeft - ms);
+    // Seat 0 is driven by this keyboard; anybody else is driven by what they
+    // last told us they were doing.
+    for (const person of this.staff) {
+      this.stepStaff(person, dt, ms, person === this.me ? walkVector() : person.remoteMove);
+    }
+  }
 
-    const keys = walkVector();
-    let dx = keys.x;
-    let dy = keys.y;
+  private stepStaff(who: Staff, dt: number, ms: number, move: { x: number; y: number }): void {
+    if (who.teaMsLeft > 0) who.teaMsLeft = Math.max(0, who.teaMsLeft - ms);
+
+    let dx = move.x;
+    let dy = move.y;
 
     // Walking yourself cancels any "go over there and do it" from the menu.
-    if ((dx !== 0 || dy !== 0) && this.pending) this.pending = null;
+    if ((dx !== 0 || dy !== 0) && who.pending) who.pending = null;
 
-    if (this.pending) {
-      if (this.withinReach(this.pending.target)) {
-        this.performPending();
+    if (who.pending) {
+      if (this.withinReach(this.me, who.pending.target)) {
+        this.performPending(this.me);
       } else {
-        const spot = this.targetPosition(this.pending.target);
-        const toX = spot.x - this.playerX;
-        const toY = spot.y - this.playerY;
+        const spot = this.targetPosition(who.pending.target);
+        const toX = spot.x - who.x;
+        const toY = spot.y - who.y;
         const distance = Math.hypot(toX, toY);
         if (distance > 1) {
           dx = toX / distance;
@@ -2225,28 +2303,28 @@ export class DaycareWorld {
     const speed =
       PLAYER.speed *
       (1 + this.upgrades.shoes * SHOP.shoesSpeedStep) *
-      (this.teaMsLeft > 0 ? PLAYER.teaSpeedMultiplier : 1);
+      (who.teaMsLeft > 0 ? PLAYER.teaSpeedMultiplier : 1);
 
     if (dx !== 0 || dy !== 0) {
-      this.playerFacing = Math.atan2(dx, dy);
-      this.playerWalkPhase += dt * 9;
+      who.facing = Math.atan2(dx, dy);
+      who.walkPhase += dt * 9;
       const moved = this.moveWithCollision(
-        this.playerX,
-        this.playerY,
+        who.x,
+        who.y,
         dx * speed * dt,
         dy * speed * dt,
       );
-      this.playerX = moved.x;
-      this.playerY = moved.y;
+      who.x = moved.x;
+      who.y = moved.y;
     } else {
-      this.playerWalkPhase *= 0.85;
+      who.walkPhase *= 0.85;
     }
 
-    this.player.root.position.set(kx(this.playerX), 0, kz(this.playerY));
-    this.player.body.rotation.y = this.playerFacing;
-    const swing = Math.sin(this.playerWalkPhase) * 0.5;
-    this.player.legs[0].rotation.x = swing;
-    this.player.legs[1].rotation.x = -swing;
+    who.model.root.position.set(kx(who.x), 0, kz(who.y));
+    who.model.body.rotation.y = who.facing;
+    const swing = Math.sin(who.walkPhase) * 0.5;
+    who.model.legs[0].rotation.x = swing;
+    who.model.legs[1].rotation.x = -swing;
   }
 
   /** Axis-aligned sliding collision: try x, then y, so you slide along walls. */
@@ -2409,13 +2487,14 @@ export class DaycareWorld {
       }
 
       // Where it is.
-      if (baby.carried) {
-        baby.x = this.playerX;
-        baby.y = this.playerY;
+      const carrier = baby.carriedBy === null ? undefined : this.staff[baby.carriedBy];
+      if (baby.carried && carrier) {
+        baby.x = carrier.x;
+        baby.y = carrier.y;
         baby.room = roomAt(baby.x, baby.y);
       } else if (baby.holdingHands) {
-        const behindX = this.playerX - Math.sin(this.playerFacing) * 70;
-        const behindY = this.playerY - Math.cos(this.playerFacing) * 70;
+        const behindX = this.me.x - Math.sin(this.me.facing) * 70;
+        const behindY = this.me.y - Math.cos(this.me.facing) * 70;
         baby.x += (behindX - baby.x) * Math.min(1, dt * 4);
         baby.y += (behindY - baby.y) * Math.min(1, dt * 4);
         baby.room = roomAt(baby.x, baby.y);
@@ -2491,7 +2570,7 @@ export class DaycareWorld {
         baby.staffRoomMs += ms;
         if (baby.staffRoomMs > BABIES.staffRoomGraceMs && this.upgrades.coffeeMachine) {
           this.upgrades.coffeeMachine = false;
-          this.hint = `${baby.name} has broken the coffee machine. A new one is in the shop.`;
+          this.me.hint = `${baby.name} has broken the coffee machine. A new one is in the shop.`;
           music.buzz();
         }
       } else {
@@ -2555,7 +2634,7 @@ export class DaycareWorld {
       baby.needAgeMs = 0;
       baby.wantedItemId = this.pickFood(baby);
     }
-    this.hint = 'Lunchtime. They are all lining up — give each one what it asked for.';
+    this.me.hint = 'Lunchtime. They are all lining up — give each one what it asked for.';
     music.alarm();
   }
 
@@ -2597,7 +2676,7 @@ export class DaycareWorld {
       this.scene.add(group);
       this.messes.push({ id, x: spot.x, y: spot.y, group });
     }
-    this.hint = 'Lunch is over and the floor is covered. Get the mop from the bucket.';
+    this.me.hint = 'Lunch is over and the floor is covered. Get the mop from the bucket.';
   }
 
   /**
@@ -2633,12 +2712,12 @@ export class DaycareWorld {
     this.messes = [];
   }
 
-  private setMop(holding: boolean): void {
-    this.holdingMop = holding;
-    if (this.mopModel) {
-      this.player.hands.remove(this.mopModel);
-      disposeSubtree(this.mopModel);
-      this.mopModel = null;
+  private setMop(who: Staff, holding: boolean): void {
+    who.holdingMop = holding;
+    if (who.mopModel) {
+      who.model.hands.remove(who.mopModel);
+      disposeSubtree(who.mopModel);
+      who.mopModel = null;
     }
     if (holding) {
       const mop = new THREE.Group();
@@ -2654,8 +2733,8 @@ export class DaycareWorld {
       );
       head.position.y = 0.02;
       mop.add(head);
-      this.player.hands.add(mop);
-      this.mopModel = mop;
+      who.model.hands.add(mop);
+      who.mopModel = mop;
     }
   }
 
@@ -2811,17 +2890,17 @@ export class DaycareWorld {
       kx(PLACES.frontDoor.x) + Math.sin(performance.now() * 0.05) * rattle * 0.05;
 
     // The highlight ring follows whatever the menu is open on.
-    if (this.menuTarget) {
-      const spot = this.targetPosition(this.menuTarget);
+    if (this.me.menuTarget) {
+      const spot = this.targetPosition(this.me.menuTarget);
       this.ring.visible = true;
       this.ring.position.set(kx(spot.x), 0.03, kz(spot.y));
-      const scale = this.menuTarget.kind === 'baby' ? 1 : 1.8;
+      const scale = this.me.menuTarget.kind === 'baby' ? 1 : 1.8;
       this.ring.scale.set(scale, scale, scale);
     } else {
       this.ring.visible = false;
     }
 
-    if (this.heldModel) this.heldModel.rotation.y += dt * 1.2;
+    if (this.me.heldModel) this.me.heldModel.rotation.y += dt * 1.2;
 
     this.stepCamera(dt);
   }
@@ -2839,8 +2918,8 @@ export class DaycareWorld {
     const marginX = Math.min(halfWidth, 5.2);
     const marginZ = Math.min(halfDepth, 3.0);
 
-    const focusX = Math.min(Math.max(kx(this.playerX), -halfWidth + marginX), halfWidth - marginX);
-    const focusZ = Math.min(Math.max(kz(this.playerY), -halfDepth + marginZ), halfDepth - marginZ);
+    const focusX = Math.min(Math.max(kx(this.me.x), -halfWidth + marginX), halfWidth - marginX);
+    const focusZ = Math.min(Math.max(kz(this.me.y), -halfDepth + marginZ), halfDepth - marginZ);
 
     const wanted = new THREE.Vector3(focusX, 0, focusZ).add(CAMERA_OFFSET);
     this.camera.position.lerp(wanted, Math.min(1, dt * 4));
@@ -2863,11 +2942,11 @@ export class DaycareWorld {
 
   private publishSnapshot(): void {
     const menu = (() => {
-      if (!this.menuTarget) return null;
-      const built = this.menuFor(this.menuTarget);
+      if (!this.me.menuTarget) return null;
+      const built = this.menuFor(this.me, this.me.menuTarget);
       if (!built) return null;
-      const spot = this.targetPosition(this.menuTarget);
-      const screen = this.screenPosition(spot.x, spot.y, this.menuTarget.kind === 'baby' ? 1.1 : 1.6);
+      const spot = this.targetPosition(this.me.menuTarget);
+      const screen = this.screenPosition(spot.x, spot.y, this.me.menuTarget.kind === 'baby' ? 1.1 : 1.6);
       return { ...built, screenX: screen.x, screenY: screen.y };
     })();
 
@@ -2880,14 +2959,14 @@ export class DaycareWorld {
       upgrades: { ...this.upgrades },
       dayNumber: this.dayNumber,
       dayTimeLeftMs: Math.max(0, this.dayTimeLeftMs),
-      playerRoom: ROOMS[roomAt(this.playerX, this.playerY)].name,
+      playerRoom: ROOMS[roomAt(this.me.x, this.me.y)].name,
       lunchtime: this.lunchtime,
       announcement: this.announcementMsLeft > 0 ? this.announcement : null,
       toTickIn: this.babies.filter((baby) => !baby.tickedIn).length,
       messCount: this.messes.length,
-      holdingMop: this.holdingMop,
-      holding: this.holding,
-      teaMsLeft: this.teaMsLeft,
+      holdingMop: this.me.holdingMop,
+      holding: this.me.holding,
+      teaMsLeft: this.me.teaMsLeft,
       babies: this.babies.map((baby) => {
         const wanted = this.wantedItem(baby);
         return {
@@ -2927,7 +3006,7 @@ export class DaycareWorld {
       dayReport: this.dayReport,
       gameOver: this.gameOver,
       musicOn: this.musicOn,
-      hint: this.hint,
+      hint: this.me.hint,
     };
     publish(snapshot);
   }

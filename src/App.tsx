@@ -4,7 +4,7 @@ import GameHUD from './components/GameHUD.tsx';
 import TouchControls from './components/TouchControls.tsx';
 import { prefersTouchControls } from './game/input.ts';
 import { secretFor, secretTeaser } from './game/data/secrets.ts';
-import type { SkinId } from './game/render/player.ts';
+import { SKINS, type SkinId } from './game/render/player.ts';
 import './App.css';
 
 export default function App() {
@@ -57,14 +57,14 @@ export default function App() {
 
           <div className="title__label">Who are you?</div>
           <div className="title__skins">
-            {(['teacher', 'robot'] as const).map((option) => (
+            {SKINS.map((option) => (
               <button
-                key={option}
-                className={`skin${skin === option ? ' skin--on' : ''}`}
-                onClick={() => setSkin(option)}
+                key={option.id}
+                className={`skin${skin === option.id ? ' skin--on' : ''}`}
+                onClick={() => setSkin(option.id)}
               >
-                <span className="skin__face">{option === 'teacher' ? '👩‍🏫' : '🤖'}</span>
-                {option === 'teacher' ? 'The Teacher' : 'The Robot'}
+                <span className="skin__face">{option.face}</span>
+                {option.label}
               </button>
             ))}
           </div>

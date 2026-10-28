@@ -267,6 +267,31 @@ makes them come true a few seconds later. *Wix is going to want a bouncy ball.*
 which makes the microphone a genuine early warning.) And once, if the shift is
 still young: *Everyone is going home now* — and then everyone goes home.
 
+## Playing together — the plan
+
+One of you hosts, the others type a four-letter code, same as Wren's Kitchen.
+Everybody picks their own avatar: **the Teacher**, **the Robot**, or one of
+three learning support assistants — **Mr Ashworth** in a cardigan, **Miss Dey**
+in an apron, and **Sam** in a hoodie and cap. All three share the teacher's
+build, so they read as the same kind of person, and are told apart by one
+strong thing each plus the lanyard every assistant in every school has.
+
+Nobody is an anomaly to start with. Turning into one, eating your friends, and
+being flat on the floor for fifteen seconds before popping back up is **only on
+the night shift's admin panel** — a thing you choose, not a way the game works.
+
+**Built so far:** "the player" is gone. There is a list of staff instead, each
+with their own position, their own hands, their own cup of tea, their own open
+menu and their own hint line, and every action now says *who* is doing it. A
+child records which pair of arms is carrying it. Walking is driven per person,
+from this keyboard for seat 0 and from whatever the network last said for
+everybody else.
+
+**Still to do:** the wire. The host runs the whole simulation and is the only
+authority — exactly how the kitchen does it — and sends everybody a picture of
+the building each frame; guests send back where they are walking and what they
+tapped. That keeps the rules in one place so two daycares can never disagree.
+
 ## Still to decide
 
 - What is the daycare *for*? Is there a shop — better cots, a bigger fridge, a stronger

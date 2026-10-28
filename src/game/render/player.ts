@@ -7,7 +7,16 @@ import { PALETTE } from './palette.ts';
  * and the Robot (a slab head on a springy segmented neck).
  */
 
-export type SkinId = 'teacher' | 'robot';
+export type SkinId = 'teacher' | 'robot' | 'lsaCardigan' | 'lsaApron' | 'lsaHoodie';
+
+/** Everybody you can be, in the order they appear on the front screen. */
+export const SKINS: Array<{ id: SkinId; label: string; face: string }> = [
+  { id: 'teacher', label: 'The Teacher', face: '👩‍🏫' },
+  { id: 'robot', label: 'The Robot', face: '🤖' },
+  { id: 'lsaCardigan', label: 'Mr Ashworth', face: '🧑‍🏫' },
+  { id: 'lsaApron', label: 'Miss Dey', face: '🧑‍🍳' },
+  { id: 'lsaHoodie', label: 'Sam', face: '🧢' },
+];
 
 export interface PlayerModel {
   root: THREE.Group;
@@ -166,8 +175,148 @@ function robot(): { body: THREE.Group; hands: THREE.Group; legs: THREE.Object3D[
   return { body, hands, legs };
 }
 
+/**
+ * The learning support assistants: the other grown-ups in a daycare. Each is
+ * built from the same parts as the teacher, so they read as the same species
+ * of person, and told apart by one strong thing each — a cardigan and a beard,
+ * an apron and a bun, a hoodie and a cap.
+ */
+function lsa(
+  look: 'cardigan' | 'apron' | 'hoodie',
+): { body: THREE.Group; hands: THREE.Group; legs: THREE.Object3D[] } {
+  const body = new THREE.Group();
+  const legs: THREE.Object3D[] = [];
+
+  const kit = {
+    cardigan: { top: 0xd98f4f, hair: 0x3a2a20, skin: 0xe3b68c, trousers: 0x4a4a58 },
+    apron: { top: 0x58b58a, hair: 0x1f1b1a, skin: 0x8a5a3c, trousers: 0x3f4a63 },
+    hoodie: { top: 0x7c6bd6, hair: 0xd8b25a, skin: 0xf0cfae, trousers: 0x2f3b4a },
+  }[look];
+
+  const torso = box(0.44, 0.5, 0.27, kit.top);
+  torso.position.y = 0.72;
+  body.add(torso);
+
+  if (look === 'cardigan') {
+    // A cardigan: a lighter panel down the front with two buttons.
+    const front = box(0.16, 0.5, 0.02, 0xf3e2c7);
+    front.position.set(0, 0.72, 0.14);
+    body.add(front);
+    for (const y of [0.84, 0.68]) {
+      const button = ball(0.02, 0x6b4430);
+      button.position.set(0, y, 0.155);
+      body.add(button);
+    }
+  } else if (look === 'apron') {
+    const apron = box(0.3, 0.42, 0.02, 0xfdf6e8);
+    apron.position.set(0, 0.68, 0.145);
+    body.add(apron);
+    for (const side of [-1, 1]) {
+      const strap = box(0.045, 0.2, 0.02, 0xfdf6e8);
+      strap.position.set(side * 0.1, 0.92, 0.14);
+      body.add(strap);
+    }
+    const pocket = box(0.16, 0.1, 0.02, 0xe8dcc6);
+    pocket.position.set(0, 0.58, 0.16);
+    body.add(pocket);
+  } else {
+    // A hoodie: a pouch, a drawstring and a hood bunched at the back.
+    const pouch = box(0.26, 0.12, 0.03, 0x6a5ac0);
+    pouch.position.set(0, 0.6, 0.15);
+    body.add(pouch);
+    const hood = ball(0.17, kit.top);
+    hood.scale.set(1.1, 0.7, 0.7);
+    hood.position.set(0, 0.95, -0.14);
+    body.add(hood);
+    for (const side of [-1, 1]) {
+      const string = cyl(0.008, 0.008, 0.12, 0xf3f3f6);
+      string.position.set(side * 0.05, 0.88, 0.15);
+      body.add(string);
+    }
+  }
+
+  const head = ball(0.21, kit.skin);
+  head.position.y = 1.14;
+  body.add(head);
+
+  const cap = dome(0.232, kit.hair);
+  cap.position.y = 1.1;
+  cap.scale.set(1.02, look === 'apron' ? 1.1 : 1.28, 1.06);
+  body.add(cap);
+
+  if (look === 'cardigan') {
+    // A short beard, which is all it takes to be a different person.
+    const beard = box(0.24, 0.12, 0.1, kit.hair);
+    beard.position.set(0, 1.0, 0.14);
+    body.add(beard);
+  } else if (look === 'apron') {
+    const bun = ball(0.08, kit.hair);
+    bun.position.set(0, 1.25, -0.18);
+    body.add(bun);
+  } else {
+    const peak = box(0.26, 0.04, 0.14, 0x3b3570);
+    peak.position.set(0, 1.26, 0.18);
+    body.add(peak);
+    const crown = dome(0.21, 0x3b3570);
+    crown.position.y = 1.19;
+    crown.scale.y = 0.85;
+    body.add(crown);
+  }
+
+  for (const side of [-1, 1]) {
+    const eye = ball(0.022, PALETTE.pupil);
+    eye.position.set(side * 0.07, 1.14, 0.2);
+    body.add(eye);
+  }
+
+  // A lanyard, because every assistant in every school has one.
+  const lanyard = box(0.03, 0.22, 0.02, 0x2b7fd4);
+  lanyard.position.set(0.05, 0.86, 0.145);
+  body.add(lanyard);
+  const badge = box(0.09, 0.12, 0.015, 0xfdfdfd);
+  badge.position.set(0.05, 0.7, 0.15);
+  body.add(badge);
+
+  for (const side of [-1, 1]) {
+    const upper = cyl(0.052, 0.052, 0.34, kit.top);
+    upper.position.set(side * 0.27, 0.76, 0);
+    body.add(upper);
+    const hand = ball(0.05, kit.skin);
+    hand.position.set(side * 0.27, 0.58, 0);
+    body.add(hand);
+  }
+
+  for (const side of [-1, 1]) {
+    const legGroup = new THREE.Group();
+    const limb = cyl(0.062, 0.062, 0.46, kit.trousers);
+    limb.position.y = -0.23;
+    legGroup.add(limb);
+    const shoe = box(0.13, 0.08, 0.2, 0x2b2b33);
+    shoe.position.set(0, -0.46, 0.03);
+    legGroup.add(shoe);
+    legGroup.position.set(side * 0.11, 0.48, 0);
+    body.add(legGroup);
+    legs.push(legGroup);
+  }
+
+  const hands = new THREE.Group();
+  hands.position.set(0, 0.78, 0.3);
+  body.add(hands);
+
+  return { body, hands, legs };
+}
+
 export function buildPlayer(skin: SkinId): PlayerModel {
-  const built = skin === 'robot' ? robot() : teacher();
+  const built =
+    skin === 'robot'
+      ? robot()
+      : skin === 'lsaCardigan'
+        ? lsa('cardigan')
+        : skin === 'lsaApron'
+          ? lsa('apron')
+          : skin === 'lsaHoodie'
+            ? lsa('hoodie')
+            : teacher();
   const root = new THREE.Group();
   root.add(built.body);
   return { root, body: built.body, hands: built.hands, legs: built.legs };

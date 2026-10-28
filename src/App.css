@@ -130,3 +130,17 @@ kbd {
   /* Not quite all the way: the warnings still have to be readable. */
   filter: grayscale(0.62) brightness(0.95);
 }
+
+/* Five of them now, so they wrap and sit a bit tighter. */
+.title__skins {
+  flex-wrap: wrap;
+}
+
+.skin {
+  padding: 9px 13px;
+  font-size: 13px;
+}
+
+.skin__face {
+  font-size: 27px;
+}

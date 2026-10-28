@@ -90,8 +90,10 @@ export interface Baby {
   /** It has finished a picture and wants you to have it. */
   hasDrawing: boolean;
   happiness: number;
-  /** Being carried by the player. */
+  /** Being carried by somebody. */
   carried: boolean;
+  /** Which seat is carrying it, when it is being carried. */
+  carriedBy: number | null;
   /** Holding the player's hand, and following them about. */
   holdingHands: boolean;
   /** How long it has been in the staff room, where it should not be. */
