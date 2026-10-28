@@ -562,3 +562,37 @@
     bottom: 54px;
   }
 }
+
+/* The panel folds away, and on a tablet it moves out from under the stick. */
+.admin__title {
+  font: inherit;
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0 0 8px;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+}
+
+.admin--shut {
+  width: auto;
+}
+
+.admin--shut .admin__title {
+  padding: 0;
+}
+
+.stage--touch .admin {
+  left: auto;
+  right: 12px;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  width: 210px;
+}
+
+.stage--touch .admin--shut {
+  width: auto;
+}

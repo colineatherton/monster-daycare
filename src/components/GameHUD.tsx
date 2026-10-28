@@ -52,9 +52,12 @@ function rosterLine(baby: GameSnapshot['babies'][number]): string {
   return 'happy 🙂';
 }
 
-export default function GameHUD({ onQuit }: { onQuit: () => void }) {
+export default function GameHUD({ onQuit, touch }: { onQuit: () => void; touch: boolean }) {
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  // On a tablet the panel would sit on top of the thumbstick, so it starts
+  // folded away behind its own button.
+  const [adminOpen, setAdminOpen] = useState(!touch);
 
   useEffect(() => subscribe(setSnapshot), []);
 
@@ -235,16 +238,28 @@ export default function GameHUD({ onQuit }: { onQuit: () => void }) {
         </div>
       )}
 
-      {snapshot.mode === 'nightcare' && (
-        <div className="admin">
-          <div className="admin__title">🌙 Night shift</div>
-          <div className="admin__grid">
-            {ADMIN_BUTTONS.map(([what, label]) => (
-              <button key={what} className="admin__button" onClick={() => commands.current?.admin(what)}>
-                {label}
-              </button>
-            ))}
-          </div>
+      {snapshot.admin && (
+        <div className={`admin${adminOpen ? '' : ' admin--shut'}`}>
+          <button
+            className="admin__title"
+            type="button"
+            onClick={() => setAdminOpen((open) => !open)}
+          >
+            🌙 Night shift {adminOpen ? '▾' : '▸'}
+          </button>
+          {adminOpen && (
+            <div className="admin__grid">
+              {ADMIN_BUTTONS.map(([what, label]) => (
+                <button
+                  key={what}
+                  className="admin__button"
+                  onClick={() => commands.current?.admin(what)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

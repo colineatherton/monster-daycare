@@ -120,6 +120,64 @@ const FURNITURE = [
   PLACES.shopCounter,
 ];
 
+/**
+ * The last two positions heard from the host, so a guest can draw the point
+ * between them instead of jumping from one to the next.
+ */
+interface Trail {
+  prevT: number;
+  prevX: number;
+  prevY: number;
+  prevFacing: number;
+  t: number;
+  x: number;
+  y: number;
+  facing: number;
+}
+
+function freshTrail(x: number, y: number, facing = 0): Trail {
+  const now = performance.now();
+  return { prevT: now, prevX: x, prevY: y, prevFacing: facing, t: now, x, y, facing };
+}
+
+/** Record something the host just said, keeping the previous word. */
+function pushTrail(trail: Trail, x: number, y: number, facing: number): void {
+  trail.prevT = trail.t;
+  trail.prevX = trail.x;
+  trail.prevY = trail.y;
+  trail.prevFacing = trail.facing;
+  trail.t = performance.now();
+  trail.x = x;
+  trail.y = y;
+  trail.facing = facing;
+}
+
+/**
+ * Draw a little way in the past — just over one gap between updates — so
+ * there are always two points to sit between. The cost is a fraction of a
+ * second of lag on other people; the gain is that they move.
+ */
+const INTERP_DELAY_MS = 110;
+
+/** Where something was at `renderTime`, between the two things last heard. */
+function trailAt(trail: Trail, renderTime: number): { x: number; y: number; facing: number } {
+  const span = trail.t - trail.prevT;
+  const alpha = span > 0 ? Math.min(1, Math.max(0, (renderTime - trail.prevT) / span)) : 1;
+  return {
+    x: trail.prevX + (trail.x - trail.prevX) * alpha,
+    y: trail.prevY + (trail.y - trail.prevY) * alpha,
+    facing: trail.prevFacing + angleTo(trail.prevFacing, trail.facing) * alpha,
+  };
+}
+
+/** The shortest way round from one angle to another, in radians. */
+function angleTo(from: number, to: number): number {
+  let difference = (to - from) % (Math.PI * 2);
+  if (difference > Math.PI) difference -= Math.PI * 2;
+  if (difference < -Math.PI) difference += Math.PI * 2;
+  return difference;
+}
+
 /** Is this object, and everything it hangs off, actually visible? */
 function onScreen(object: THREE.Object3D): boolean {
   for (let node: THREE.Object3D | null = object; node; node = node.parent) {
@@ -175,6 +233,13 @@ function doorwayInto(room: RoomId): { x: number; y: number } | null {
 interface Staff {
   /** Position in the list. Seat 0 is whoever is hosting. */
   seat: number;
+  /**
+   * The last two things the host said about this person, with the moment each
+   * arrived. A guest draws a point *between* them — the host speaks fourteen
+   * times a second and the screen draws sixty, so anything drawn straight off
+   * the wire sits still for four frames and then leaps.
+   */
+  net: Trail;
   /** Where somebody else said they were walking. Unused for seat 0. */
   remoteMove: { x: number; y: number };
   name: string;
@@ -199,6 +264,8 @@ interface Staff {
 
 interface BabyEntity extends Baby {
   model: BabyModel;
+  /** The last two things the host said about it. Only a guest uses this. */
+  net: Trail;
   /** Bob, on the shift he starts looking for his teddy. Nothing settles him. */
   searching: boolean;
   /** Something carried or clutched: Pip's remembered teddy, or a microphone. */
@@ -460,6 +527,7 @@ export class DaycareWorld {
 
     const member: Staff = {
       seat,
+      net: freshTrail(PLAYER.spawnX + (seat - 0.5) * 90, PLAYER.spawnY),
       remoteMove: { x: 0, y: 0 },
       name,
       skin,
@@ -685,6 +753,7 @@ export class DaycareWorld {
       nameTag,
       glow,
       walkPhase: Math.random() * 6,
+      net: freshTrail(start.x, start.y),
       path: [],
       searching: false,
       prop: null,
@@ -1789,9 +1858,9 @@ export class DaycareWorld {
       seat: person.seat,
       name: person.name,
       skin: person.skin,
-      x: person.x,
-      y: person.y,
-      facing: person.facing,
+      x: Math.round(person.x),
+      y: Math.round(person.y),
+      facing: Math.round(person.facing * 100) / 100,
       item: person.holding?.id ?? null,
       mop: person.holdingMop,
     }));
@@ -1800,9 +1869,9 @@ export class DaycareWorld {
       id: baby.id,
       species: baby.species.id,
       name: baby.name,
-      x: baby.x,
-      y: baby.y,
-      facing: baby.facing,
+      x: Math.round(baby.x),
+      y: Math.round(baby.y),
+      facing: Math.round(baby.facing * 100) / 100,
       asleep: baby.asleep,
       carried: baby.carried,
       bed: baby.bedIndex,
@@ -1844,21 +1913,20 @@ export class DaycareWorld {
     while (this.staff.length > frame.staff.length) this.removeStaff(this.staff.length - 1);
     frame.staff.forEach((person, seat) => {
       let member = this.staff[seat];
-      if (!member || member.skin !== person.skin) {
+      const fresh = !member || member.skin !== person.skin;
+      if (fresh) {
         if (member) this.removeStaff(seat);
         member = this.addStaff(seat, person.name, person.skin);
       }
       member.name = person.name;
-      member.x = person.x;
-      member.y = person.y;
-      member.facing = person.facing;
-      // Walking feet, worked out from how far they moved.
-      member.walkPhase += Math.hypot(person.x - member.x, person.y - member.y) > 0.5 ? 0.35 : 0;
-      member.model.root.position.set(kx(person.x), 0, kz(person.y));
-      member.model.body.rotation.y = person.facing;
-      const swing = Math.sin(member.walkPhase) * 0.5;
-      member.model.legs[0].rotation.x = swing;
-      member.model.legs[1].rotation.x = -swing;
+      if (fresh) {
+        member.net = freshTrail(person.x, person.y, person.facing);
+        member.x = person.x;
+        member.y = person.y;
+        member.facing = person.facing;
+      } else {
+        pushTrail(member.net, person.x, person.y, person.facing);
+      }
 
       const wantedItem = person.item ?? (person.mop ? 'mop' : null);
       const haveItem = member.holding?.id ?? (member.holdingMop ? 'mop' : null);
@@ -1884,6 +1952,7 @@ export class DaycareWorld {
     }
     for (const incoming of frame.babies) {
       let baby = this.babyById(incoming.id);
+      const justArrived = !baby;
       if (!baby) {
         this.spawnBaby(speciesById(incoming.species), { quietly: true });
         baby = this.babies[this.babies.length - 1];
@@ -1893,14 +1962,18 @@ export class DaycareWorld {
         });
       }
       baby.name = incoming.name;
-      baby.x = incoming.x;
-      baby.y = incoming.y;
-      baby.facing = incoming.facing;
+      if (justArrived) {
+        baby.net = freshTrail(incoming.x, incoming.y, incoming.facing);
+        baby.x = incoming.x;
+        baby.y = incoming.y;
+        baby.facing = incoming.facing;
+      } else {
+        pushTrail(baby.net, incoming.x, incoming.y, incoming.facing);
+      }
       baby.asleep = incoming.asleep;
       baby.carried = incoming.carried;
       baby.bedIndex = incoming.bed;
       baby.eruption = incoming.eruption as Baby['eruption'];
-      baby.walkPhase += 0.12;
       (baby.glow.material as THREE.MeshBasicMaterial).opacity = incoming.glow;
 
       const key = `${incoming.bubble}|${incoming.urgent}`;
@@ -3163,9 +3236,46 @@ export class DaycareWorld {
     this.beginHomeTime();
   }
 
-  /** A guest only animates what it was sent, and moves its own camera. */
+  /**
+   * A guest draws sixty times a second but is told things fourteen times a
+   * second, so nothing is ever drawn straight from the wire: everything
+   * chases the last thing the host said. Your own grown-up is different again
+   * — they move here, immediately, and are only nudged if the host disagrees,
+   * because waiting a frame for your own feet feels horrible.
+   */
   private stepGuestVisuals(dt: number): void {
+    const renderTime = performance.now() - INTERP_DELAY_MS;
+
+    for (const person of this.staff) {
+      let moving: boolean;
+      if (person === this.me) {
+        this.stepGuestSelf(person, dt);
+        moving = Math.hypot(person.remoteMove.x, person.remoteMove.y) > 0;
+      } else {
+        const at = trailAt(person.net, renderTime);
+        moving = Math.hypot(at.x - person.x, at.y - person.y) > 0.3;
+        person.x = at.x;
+        person.y = at.y;
+        person.facing = at.facing;
+      }
+
+      if (moving) person.walkPhase += dt * 9;
+      else person.walkPhase *= 0.85;
+
+      person.model.root.position.set(kx(person.x), 0, kz(person.y));
+      person.model.body.rotation.y = person.facing;
+      const swing = Math.sin(person.walkPhase) * 0.5;
+      person.model.legs[0].rotation.x = swing;
+      person.model.legs[1].rotation.x = -swing;
+    }
+
     for (const baby of this.babies) {
+      const at = trailAt(baby.net, renderTime);
+      const stirring = Math.hypot(at.x - baby.x, at.y - baby.y) > 0.3;
+      baby.x = at.x;
+      baby.y = at.y;
+      baby.facing = at.facing;
+      if (stirring) baby.walkPhase += dt * 7;
       baby.model.root.position.set(kx(baby.x), 0, kz(baby.y));
       baby.model.body.rotation.y = baby.facing;
       const swing = Math.sin(baby.walkPhase) * 0.35;
@@ -3206,6 +3316,37 @@ export class DaycareWorld {
 
     if (this.me.heldModel) this.me.heldModel.rotation.y += dt * 1.2;
     this.stepCamera(dt);
+  }
+
+  /**
+   * Your own feet, on your own machine. The host is still the authority — it
+   * just gets to correct you rather than drive you, so walking never waits for
+   * a round trip.
+   */
+  private stepGuestSelf(who: Staff, dt: number): void {
+    const move = walkVector();
+    who.remoteMove = move;
+
+    if (move.x !== 0 || move.y !== 0) {
+      who.facing = Math.atan2(move.x, move.y);
+      const speed = PLAYER.speed * (1 + this.upgrades.shoes * SHOP.shoesSpeedStep);
+      const moved = this.moveWithCollision(who.x, who.y, move.x * speed * dt, move.y * speed * dt);
+      who.x = moved.x;
+      who.y = moved.y;
+    }
+
+    // How far the host thinks we are from where we think we are. A long way
+    // means something moved us — being carried off, or a shove — so snap;
+    // a little means ordinary drift, so drift back quietly.
+    const drift = Math.hypot(who.net.x - who.x, who.net.y - who.y);
+    if (drift > 220) {
+      who.x = who.net.x;
+      who.y = who.net.y;
+    } else {
+      const settle = Math.min(1, dt * (move.x === 0 && move.y === 0 ? 6 : 1.5));
+      who.x += (who.net.x - who.x) * settle;
+      who.y += (who.net.y - who.y) * settle;
+    }
   }
 
   /** Bubbles, wobbling, the dread glow, the camera and the room going dark. */
@@ -3389,6 +3530,8 @@ export class DaycareWorld {
     const snapshot: GameSnapshot = {
       daycareName: this.daycareName,
       mode: this.mode,
+      // Only whoever opened the room gets the keys to everything.
+      admin: this.mode === 'nightcare' && who.seat === 0,
       coins: this.coins,
       drawings: this.drawings,
       onTheWall: this.onTheWall,

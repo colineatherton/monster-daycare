@@ -88,9 +88,11 @@ export default function App() {
   }
 
   return (
-    <div className={`stage${secret === 'rotted' ? ' stage--rotted' : ''}`}>
+    <div
+      className={`stage${secret === 'rotted' ? ' stage--rotted' : ''}${touch ? ' stage--touch' : ''}`}
+    >
       <GameCanvas daycareName={daycareName} skin={skin} firstDay={firstDay} />
-      <GameHUD onQuit={() => setPlaying(false)} />
+      <GameHUD onQuit={() => setPlaying(false)} touch={touch} />
       {touch && <TouchControls />}
     </div>
   );

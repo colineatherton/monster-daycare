@@ -290,6 +290,24 @@ Every grown-up has their own position, hands, cup of tea, open menu and
 pending walk-over-and-do-it, and a child records which pair of arms is carrying
 it — so two of you can be carrying different children at once.
 
+### Drawing somebody else smoothly
+
+The host speaks fourteen times a second; a screen draws sixty. Anything drawn
+straight off the wire therefore sits perfectly still for four frames and then
+leaps — which is exactly what it looked like. So a guest keeps the **last two**
+things the host said about each person and child, and draws the point *between*
+them, a tenth of a second in the past. The cost is a fraction of a second of
+lag on other people; the gain is that they move.
+
+Measured on a walking friend, before and after: straight off the wire, 57% of
+frames were identical to the one before; as drawn, 12%, and the worst jump fell
+from 3.4× the typical step to 1.7×.
+
+Your own grown-up is different again. They move **here**, immediately, from
+your own keys, and the host only corrects them — a gentle nudge for ordinary
+drift, a snap if you are more than a couple of metres out. Waiting a round trip
+for your own feet feels horrible.
+
 ### Still to come
 
 The night shift's monster mode: turning into an anomaly, eating your friends,

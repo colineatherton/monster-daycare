@@ -174,6 +174,8 @@ export interface GameSnapshot {
   daycareName: string;
   /** Which of the secret names was typed, if any. */
   mode: SecretMode;
+  /** True only for the person hosting a night shift. */
+  admin: boolean;
   coins: number;
   drawings: number;
   /** Drawings hung on the playroom wall so far. */
