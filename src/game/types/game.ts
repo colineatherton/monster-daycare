@@ -94,8 +94,10 @@ export interface Baby {
   carried: boolean;
   /** Which seat is carrying it, when it is being carried. */
   carriedBy: number | null;
-  /** Holding the player's hand, and following them about. */
+  /** Holding somebody's hand, and following them about. */
   holdingHands: boolean;
+  /** Whose hand. Without this everybody's child follows the host. */
+  handHeldBy: number | null;
   /** How long it has been in the staff room, where it should not be. */
   staffRoomMs: number;
   /** Ticked off on the register when it arrived. */
@@ -167,6 +169,24 @@ export interface Upgrades {
   strongDoor: boolean;
   teapot: boolean;
   nicerToys: boolean;
+}
+
+/** Who did what this shift, for the award at the end of it. */
+export interface StaffScore {
+  seat: number;
+  name: string;
+  /** Things fetched and handed over, hands held, cuddles that were wanted. */
+  looked: number;
+  /** Children ticked in on the register. */
+  ticked: number;
+  /** Drawings taken, messes mopped. */
+  tidied: number;
+  /** Socks and nappies: anomalies brought back under control. */
+  brave: number;
+  /** Children handed to the right parent at home time. */
+  home: number;
+  /** What it all adds up to. */
+  total: number;
 }
 
 /** What the renderer hands to React every frame. */
@@ -248,6 +268,9 @@ export interface GameSnapshot {
     dayNumber: number;
     verdicts: ParentVerdict[];
     earned: number;
+    /** Only when there is more than one of you: who did the most, and how. */
+    scores: StaffScore[];
+    employeeOfTheShift: string | null;
   } | null;
   /** Non-null once the run is over. */
   gameOver: { reason: string; detail: string } | null;

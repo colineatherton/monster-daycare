@@ -52,6 +52,14 @@ export interface CloseMenuMessage {
   t: 'closemenu';
 }
 
+/**
+ * Host -> guests: the daycare is open, come in. Until this arrives a guest
+ * waits in the room rather than wandering an empty building.
+ */
+export interface StartMessage {
+  t: 'start';
+}
+
 /* --------------------------------------------------------- host -> guest */
 
 /** One grown-up, as everybody else sees them. */
@@ -125,6 +133,7 @@ export type NetMessage =
   | TapMessage
   | ActionMessage
   | CloseMenuMessage
+  | StartMessage
   | FrameMessage
   | LobbyMessage;
 

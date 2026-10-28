@@ -338,6 +338,29 @@ Walking to something you tapped goes through the doorway rather than straight
 at the wall between you and it. Every room opens off the playroom, so the whole
 of "pathfinding" is: out through my door, in through theirs.
 
+### The lobby
+
+Opening a room no longer opens the daycare. The host gets the code and watches
+people arrive — *"2 waiting to come in"* — and everybody stands in the room,
+told so, until the host presses the button. Joining late still works: you are
+let straight in.
+
+### Employee of the shift
+
+With more than one of you, the home-time card names whoever did the most, with
+the table behind it: children looked after, names ticked off the register,
+drawings taken and mess mopped, socks and nappies, and children handed to the
+right parent. The frightening jobs are worth six times a tick on the register,
+because anybody can tick a name off a list. Nobody wins it for doing nothing,
+and a draw means nobody wins it.
+
+### Whose hand, whose arms
+
+A child being led by the hand records *whose* hand, the same way a carried one
+records whose arms. Without that every child followed the host about, whoever
+had taken their hand. Letting go of your own lets go of nobody else's, and
+somebody else's child says so in your menu.
+
 ### Still to come
 
 The night shift's monster mode: turning into an anomaly, eating your friends,

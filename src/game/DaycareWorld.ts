@@ -55,6 +55,7 @@ import type {
   NeedKind,
   ParentVerdict,
   Species,
+  StaffScore,
   Upgrades,
 } from './types/game.ts';
 
@@ -285,6 +286,8 @@ interface Staff {
   menuTarget: ClickTarget | null;
   /** What they were last told, shown on their own screen. */
   hint: string;
+  /** What they have done this shift, for the award at the end of it. */
+  score: { looked: number; ticked: number; tidied: number; brave: number; home: number };
 }
 
 interface BabyEntity extends Baby {
@@ -416,7 +419,13 @@ export class DaycareWorld {
     null;
   private prophecyMsLeft = 0;
 
-  private dayReport: { dayNumber: number; verdicts: ParentVerdict[]; earned: number } | null = null;
+  private dayReport: {
+    dayNumber: number;
+    verdicts: ParentVerdict[];
+    earned: number;
+    scores: StaffScore[];
+    employeeOfTheShift: string | null;
+  } | null = null;
   private gameOver: { reason: string; detail: string } | null = null;
   private musicOn = true;
   private lastHeartbeatAt = 0;
@@ -441,6 +450,15 @@ export class DaycareWorld {
 
   /** Normally 'normal'. The two secret names change the whole shift. */
   private readonly mode: SecretMode;
+
+  /**
+   * Which daycare you are *looking at*. A guest is in the host's building, so
+   * if the host called it the rotted one then it is grey for everybody —
+   * whatever the guest happened to type on their own front screen.
+   */
+  private get lookMode(): SecretMode {
+    return this.amGuest ? (this.latestFrame?.hud.mode ?? 'normal') : this.mode;
+  }
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -527,6 +545,12 @@ export class DaycareWorld {
     music.setMuted(!this.musicOn);
     music.start();
 
+    // Anybody who joined while this screen was still on the front page is
+    // already connected; give them a seat now.
+    if (this.amHost) {
+      for (const id of netSession.connectionIds) this.onGuestJoined(id);
+    }
+
     // A guest introduces itself, so the host knows who has walked in.
     if (this.amGuest) {
       const label = SKINS.find((entry) => entry.id === options.skin)?.label ?? 'Helper';
@@ -580,6 +604,7 @@ export class DaycareWorld {
       pending: null,
       menuTarget: null,
       hint: 'Click a monster, or click a cupboard to fetch something.',
+      score: { looked: 0, ticked: 0, tidied: 0, brave: 0, home: 0 },
     };
     this.staff[seat] = member;
     return member;
@@ -779,6 +804,7 @@ export class DaycareWorld {
       carried: false,
       carriedBy: null,
       holdingHands: false,
+      handHeldBy: null,
       eruption: 'none',
       eruptionMsLeft: 0,
       huntingId: null,
@@ -1100,10 +1126,15 @@ export class DaycareWorld {
         actions.push({ id: `give:${who.holding.id}`, label: `Give it ${who.holding.name}` });
       }
       actions.push({ id: 'cuddle', label: 'Give it a cuddle' });
+      const inMyHand = baby.holdingHands && baby.handHeldBy === who.seat;
       actions.push({
-        id: baby.holdingHands ? 'letgo' : 'hold',
-        label: baby.holdingHands ? 'Let go of its hand' : 'Hold its hand',
-        disabledBecause: baby.carried ? 'you are already carrying it' : undefined,
+        id: inMyHand ? 'letgo' : 'hold',
+        label: inMyHand ? 'Let go of its hand' : 'Hold its hand',
+        disabledBecause: baby.carried
+          ? 'you are already carrying it'
+          : baby.holdingHands && !inMyHand
+            ? 'somebody else has its hand'
+            : undefined,
       });
       actions.push({
         id: baby.carried ? 'putdown' : 'pickup',
@@ -1400,6 +1431,7 @@ export class DaycareWorld {
       const arrival = this.babyById(actionId.slice(5));
       if (!arrival || arrival.tickedIn) return;
       arrival.tickedIn = true;
+      who.score.ticked += 1;
       this.coins += 5;
       const left = this.babies.filter((baby) => !baby.tickedIn).length;
       who.hint = left
@@ -1443,6 +1475,7 @@ export class DaycareWorld {
       this.scene.remove(mess.group);
       disposeSubtree(mess.group);
       this.coins += LUNCH.moppingCoins;
+      who.score.tidied += 1;
       who.hint =
         this.messes.length === 0
           ? 'Floor spotless. Nicely done.'
@@ -1502,6 +1535,7 @@ export class DaycareWorld {
       carried.y = spot.y;
       carried.room = roomAt(spot.x, spot.y);
       // Being put down in a bed is what a sleepy one wanted all along.
+      who.score.looked += 1;
       if (carried.need === 'sleepy') {
         this.meetNeed(carried, carried.species.anomaly === 'none' ? 10 : 10 * ANOMALY.payMultiplier);
         carried.happiness = Math.min(100, carried.happiness + BEDS.tuckedInReward);
@@ -1546,6 +1580,7 @@ export class DaycareWorld {
           baby.wantedItemId = null;
           baby.needAgeMs = 0;
           baby.drawingMs = BABIES.drawingMs;
+          who.score.looked += 1;
           baby.happiness = Math.min(100, baby.happiness + 8);
           who.hint = `${baby.name} is colouring. Come back for the picture.`;
           music.coin();
@@ -1586,6 +1621,7 @@ export class DaycareWorld {
         who.holding = null;
         this.setHeldModel(who, null);
         this.wakeUp(baby);
+        who.score.looked += 1;
         this.coins += 10;
         who.hint = `${baby.name} is awake, and in a very good mood.`;
         music.coin();
@@ -1600,6 +1636,7 @@ export class DaycareWorld {
         this.setHeldModel(who, null);
         this.calmDown(baby);
         this.coins += ANOMALY.sockCoins;
+        who.score.brave += 1;
         who.hint = 'It took the sock and calmed right down. Back to the anomaly room with it.';
         music.coin();
         break;
@@ -1607,6 +1644,7 @@ export class DaycareWorld {
       case 'nappy': {
         this.calmDown(baby);
         this.coins += ANOMALY.nappyCoins;
+        who.score.brave += 1;
         who.hint = 'You changed its nappy. The ritual stopped. Everyone is fine.';
         music.coin();
         break;
@@ -1617,6 +1655,7 @@ export class DaycareWorld {
         baby.nextNeedMs = BABIES.needGapMs + Math.random() * BABIES.needGapJitterMs;
         baby.happiness = Math.min(100, baby.happiness + 14);
         this.coins += BABIES.drawingCoins;
+        who.score.tidied += 1;
         this.drawings += 1;
         this.pendingDrawings.push(baby.species.colour);
         who.hint = `${baby.name} gave you their drawing. It goes up on the wall at home time.`;
@@ -1624,6 +1663,7 @@ export class DaycareWorld {
         break;
       case 'cuddle':
         if (baby.need === 'sad') {
+          who.score.looked += 1;
           this.meetNeed(baby, baby.species.anomaly === 'none' ? 8 : 8 * ANOMALY.payMultiplier);
           who.hint = `${baby.name} feels much better.`;
           music.coin();
@@ -1633,12 +1673,21 @@ export class DaycareWorld {
         }
         break;
       case 'hold':
+        // One hand each. Letting go of your own does not let go of anybody
+        // else's — another grown-up may be leading a child about.
+        for (const other of this.babies) {
+          if (other !== baby && other.handHeldBy === who.seat) {
+            other.holdingHands = false;
+            other.handHeldBy = null;
+          }
+        }
         baby.holdingHands = true;
-        for (const other of this.babies) if (other !== baby) other.holdingHands = false;
+        baby.handHeldBy = who.seat;
         who.hint = `${baby.name} is holding your hand and following you about.`;
         break;
       case 'letgo':
         baby.holdingHands = false;
+        baby.handHeldBy = null;
         break;
       case 'pickup':
         // Only ever one child per pair of arms, and only out of arms that are
@@ -1779,6 +1828,26 @@ export class DaycareWorld {
         this.dayTimeLeftMs = 1;
         this.me.hint = 'Home time, early.';
         break;
+      case 'finish': {
+        // Everybody goes home at once, whoever happens to be holding them.
+        if (!this.homeTime) this.beginHomeTime();
+        for (const parent of [...this.queue]) {
+          const child = this.babyById(parent.babyId);
+          if (child) {
+            this.verdicts.push(this.verdictFor(child));
+            this.removeBaby(child);
+            this.babies = this.babies.filter((other) => other !== child);
+          } else {
+            this.verdicts.push({
+              babyName: parent.babyName,
+              happy: false,
+              said: 'Nobody has explained where they are.',
+            });
+          }
+          this.removeParent(parent);
+        }
+        break;
+      }
       case 'skipday':
         this.startDay(this.dayNumber + 1);
         for (const baby of this.babies) this.removeBaby(baby);
@@ -1804,10 +1873,13 @@ export class DaycareWorld {
 
   private onGuestJoined(id: string): void {
     if (!this.amHost) return;
+    if (this.seats.includes(id)) return;
     const seat = this.staff.length;
     this.seats[seat] = id;
     // A placeholder until they say who they are; their hello replaces it.
     this.addStaff(seat, `Helper ${seat}`, 'lsaCardigan');
+    // They may have been waiting on the front screen for this.
+    netSession.sendTo(id, { t: 'start' });
     this.sendLobby();
   }
 
@@ -1824,6 +1896,12 @@ export class DaycareWorld {
         baby.carriedBy = null;
       } else if (baby.carriedBy !== null && baby.carriedBy > seat) {
         baby.carriedBy -= 1;
+      }
+      if (baby.handHeldBy === seat) {
+        baby.holdingHands = false;
+        baby.handHeldBy = null;
+      } else if (baby.handHeldBy !== null && baby.handHeldBy > seat) {
+        baby.handHeldBy -= 1;
       }
     }
     this.removeStaff(seat);
@@ -2618,6 +2696,8 @@ export class DaycareWorld {
 
     const verdict = this.verdictFor(baby);
     this.verdicts.push(verdict);
+    const handedBy = this.staff.find((person) => person.seat === (baby.carriedBy ?? 0));
+    if (handedBy) handedBy.score.home += 1;
     if (verdict.happy) {
       this.coins += 15;
       music.coin();
@@ -2643,7 +2723,12 @@ export class DaycareWorld {
     if (this.queue.length === 0) {
       this.hangTodaysDrawings();
       const earned = this.verdicts.filter((verdict) => verdict.happy).length * 15;
-      this.dayReport = { dayNumber: this.dayNumber, verdicts: [...this.verdicts], earned };
+      this.dayReport = {
+        dayNumber: this.dayNumber,
+        verdicts: [...this.verdicts],
+        earned,
+        ...this.shiftAward(),
+      };
       this.homeTime = false;
       for (const baby of this.babies) this.removeBaby(baby);
       this.babies = [];
@@ -2662,6 +2747,39 @@ export class DaycareWorld {
       this.onTheWall += 1;
     }
     this.pendingDrawings = [];
+  }
+
+  /**
+   * Employee of the shift. Only worth saying when there is more than one of
+   * you, and weighted so that the frightening jobs count for more than the
+   * easy ones — anybody can tick a name off a list.
+   */
+  private shiftAward(): { scores: StaffScore[]; employeeOfTheShift: string | null } {
+    const scores: StaffScore[] = this.staff.map((person) => {
+      const s = person.score;
+      return {
+        seat: person.seat,
+        name: person.name,
+        looked: s.looked,
+        ticked: s.ticked,
+        tidied: s.tidied,
+        brave: s.brave,
+        home: s.home,
+        total: s.looked * 2 + s.ticked + s.tidied * 2 + s.brave * 6 + s.home * 3,
+      };
+    });
+    scores.sort((a, b) => b.total - a.total);
+
+    // Nobody gets it for doing nothing, and nobody gets it for a draw.
+    const best = scores[0];
+    const tied = scores.length > 1 && scores[1].total === best?.total;
+    const winner = this.staff.length > 1 && best && best.total > 0 && !tied ? best.name : null;
+
+    // Reset for tomorrow.
+    for (const person of this.staff) {
+      person.score = { looked: 0, ticked: 0, tidied: 0, brave: 0, home: 0 };
+    }
+    return { scores, employeeOfTheShift: winner };
   }
 
   /** What a parent says once they have their child back. */
@@ -2858,9 +2976,15 @@ export class DaycareWorld {
   }
 
   /** Axis-aligned sliding collision: try x, then y, so you slide along walls. */
-  private moveWithCollision(x: number, y: number, dx: number, dy: number): { x: number; y: number } {
-    const halfW = PLAYER.bodyWidth / 2;
-    const halfH = PLAYER.bodyHeight / 2;
+  private moveWithCollision(
+    x: number,
+    y: number,
+    dx: number,
+    dy: number,
+    body: { width: number; height: number } = { width: PLAYER.bodyWidth, height: PLAYER.bodyHeight },
+  ): { x: number; y: number } {
+    const halfW = body.width / 2;
+    const halfH = body.height / 2;
     const minX = ROOM.wall + halfW;
     const maxX = ROOM.width - ROOM.wall - halfW;
     const minY = ROOM.wall + halfH + 40;
@@ -3022,12 +3146,13 @@ export class DaycareWorld {
         baby.x = carrier.x;
         baby.y = carrier.y;
         baby.room = roomAt(baby.x, baby.y);
-      } else if (baby.holdingHands) {
-        const behindX = this.me.x - Math.sin(this.me.facing) * 70;
-        const behindY = this.me.y - Math.cos(this.me.facing) * 70;
-        baby.x += (behindX - baby.x) * Math.min(1, dt * 4);
-        baby.y += (behindY - baby.y) * Math.min(1, dt * 4);
-        baby.room = roomAt(baby.x, baby.y);
+      } else if (baby.holdingHands && baby.handHeldBy !== null && this.staff[baby.handHeldBy]) {
+        // Behind whoever is actually holding its hand, not behind the host.
+        const leader = this.staff[baby.handHeldBy];
+        const behindX = leader.x - Math.sin(leader.facing) * 70;
+        const behindY = leader.y - Math.cos(leader.facing) * 70;
+        const pull = Math.min(1, dt * 4);
+        this.moveBaby(baby, (behindX - baby.x) * pull, (behindY - baby.y) * pull);
       } else if (baby.lunchSlot !== null && baby.need === 'hungry') {
         // Shuffling into place in the lunch queue, then standing there
         // looking at you until it is served.
@@ -3036,11 +3161,13 @@ export class DaycareWorld {
         const toY = spot.y - baby.y;
         const distance = Math.hypot(toX, toY);
         if (distance > 16) {
-          baby.x += (toX / distance) * BABIES.speed * 1.6 * dt;
-          baby.y += (toY / distance) * BABIES.speed * 1.6 * dt;
+          this.moveBaby(
+            baby,
+            (toX / distance) * BABIES.speed * 1.6 * dt,
+            (toY / distance) * BABIES.speed * 1.6 * dt,
+          );
           baby.facing = Math.atan2(toX, toY);
           baby.walkPhase += dt * 8;
-          baby.room = roomAt(baby.x, baby.y);
         } else {
           baby.facing += (0 - baby.facing) * Math.min(1, dt * 5);
           baby.walkPhase += dt * 2;
@@ -3059,11 +3186,13 @@ export class DaycareWorld {
             this.wanderSomewhere(baby);
           }
         } else {
-          baby.x += (toX / distance) * BABIES.speed * 1.5 * dt;
-          baby.y += (toY / distance) * BABIES.speed * 1.5 * dt;
+          this.moveBaby(
+            baby,
+            (toX / distance) * BABIES.speed * 1.5 * dt,
+            (toY / distance) * BABIES.speed * 1.5 * dt,
+          );
           baby.facing = Math.atan2(toX, toY);
           baby.walkPhase += dt * 10;
-          baby.room = roomAt(baby.x, baby.y);
         }
       } else if (baby.need !== null && baby.needAgeMs > BABIES.settleAfterMs) {
         // A baby that has been waiting a few seconds stops and looks at you,
@@ -3086,11 +3215,13 @@ export class DaycareWorld {
             this.wanderSomewhere(baby);
           }
         } else {
-          baby.x += (toX / distance) * BABIES.speed * dt;
-          baby.y += (toY / distance) * BABIES.speed * dt;
+          this.moveBaby(
+            baby,
+            (toX / distance) * BABIES.speed * dt,
+            (toY / distance) * BABIES.speed * dt,
+          );
           baby.facing = Math.atan2(toX, toY);
           baby.walkPhase += dt * 7;
-          baby.room = roomAt(baby.x, baby.y);
         }
       }
 
@@ -3109,6 +3240,17 @@ export class DaycareWorld {
     }
 
     this.keepBabiesApart();
+  }
+
+  /** A child walking: the same rules as you, with a smaller body. */
+  private moveBaby(baby: BabyEntity, dx: number, dy: number): void {
+    const moved = this.moveWithCollision(baby.x, baby.y, dx, dy, {
+      width: BABIES.bodyWidth,
+      height: BABIES.bodyHeight,
+    });
+    baby.x = moved.x;
+    baby.y = moved.y;
+    baby.room = roomAt(baby.x, baby.y);
   }
 
   /**
@@ -3567,7 +3709,7 @@ export class DaycareWorld {
    * something always is.
    */
   private shakeFrontDoor(rattle: number): void {
-    const howHard = this.mode === 'rotted' ? Math.max(rattle, 0.8) : rattle;
+    const howHard = this.lookMode === 'rotted' ? Math.max(rattle, 0.8) : rattle;
     if (howHard <= 0) {
       this.room.frontDoor.position.x = kx(PLACES.frontDoor.x);
       this.room.frontDoor.rotation.z = 0;

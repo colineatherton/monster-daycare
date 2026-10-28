@@ -144,3 +144,9 @@ kbd {
 .skin__face {
   font-size: 27px;
 }
+
+.big-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+  transform: none;
+}

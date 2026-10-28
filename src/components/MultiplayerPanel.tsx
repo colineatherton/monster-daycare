@@ -10,32 +10,41 @@ import './MultiplayerPanel.css';
  * each other once a public broker has introduced them.
  */
 export default function MultiplayerPanel({
-  onConnected,
+  onStart,
+  onRole,
 }: {
-  /** Called when a guest is in, so the game can start without another tap. */
-  onConnected: () => void;
+  /** Called when the host opens up, so a guest walks in without another tap. */
+  onStart: () => void;
+  /** Lets the front screen know whether this person is waiting on somebody. */
+  onRole: (role: 'alone' | 'host' | 'waiting') => void;
 }) {
   const [mode, setMode] = useState<'alone' | 'host' | 'join'>('alone');
   const [code, setCode] = useState('');
   const [typed, setTyped] = useState('');
   const [status, setStatus] = useState<NetStatus>('idle');
   const [detail, setDetail] = useState('');
+  /** How many people are standing in the room waiting for the host. */
+  const [waiting, setWaiting] = useState(0);
 
   useEffect(() => {
     netSession.listen({
       onStatus: (next, says) => {
         setStatus(next);
         setDetail(says);
-        if (next === 'connected' && netSession.role === 'guest') onConnected();
+        if (next === 'connected' && netSession.role === 'guest') onRole('waiting');
       },
-      onMessage: () => undefined,
-      onGuestJoined: () => undefined,
-      onGuestLeft: () => undefined,
+      onMessage: (message) => {
+        // The host has opened up. In we go.
+        if (message.t === 'start' && netSession.role === 'guest') onStart();
+      },
+      onGuestJoined: () => setWaiting(netSession.playerCount - 1),
+      onGuestLeft: () => setWaiting(netSession.playerCount - 1),
     });
-  }, [onConnected]);
+  }, [onStart, onRole]);
 
   const openRoom = async () => {
     setMode('host');
+    onRole('host');
     try {
       setCode(await netSession.host());
     } catch {
@@ -56,6 +65,8 @@ export default function MultiplayerPanel({
     netSession.leave();
     setMode('alone');
     setCode('');
+    setWaiting(0);
+    onRole('alone');
   };
 
   return (
@@ -89,7 +100,12 @@ export default function MultiplayerPanel({
           <div className="mp__codeLabel">Your code</div>
           <div className="mp__codeValue">{code}</div>
           <div className="mp__hint">
-            Read those four letters out. They can join now or once you have started.
+            Read those four letters out. Everybody waits here until you open the daycare.
+          </div>
+          <div className="mp__waiting">
+            {waiting === 0
+              ? 'Nobody here yet.'
+              : `${waiting} waiting to come in${waiting >= 4 ? ' (full)' : ''}`}
           </div>
         </div>
       )}
@@ -113,6 +129,10 @@ export default function MultiplayerPanel({
             Join
           </button>
         </div>
+      )}
+
+      {mode === 'join' && status === 'connected' && (
+        <div className="mp__waiting">You are in the room. Waiting for the host to open up…</div>
       )}
 
       {mode !== 'alone' && detail && (

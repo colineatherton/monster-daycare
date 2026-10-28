@@ -60,6 +60,13 @@ class NetSession {
     return this.playerCount >= MAX_PLAYERS;
   }
 
+  /** Who is already connected, so a world opening late can adopt them. */
+  get connectionIds(): string[] {
+    return this.openConnections.map(
+      (connection) => connection.connectionId ?? connection.peer,
+    );
+  }
+
   private get openConnections(): DataConnection[] {
     return [...this.connections.values()].filter((connection) => connection.open);
   }

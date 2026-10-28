@@ -36,6 +36,7 @@ const ADMIN_BUTTONS: Array<[string, string]> = [
   ['happy', '😇 Everyone happy'],
   ['calm', '🧦 Calm everything'],
   ['endday', '🏠 Home time now'],
+  ['finish', '🏁 End the shift'],
   ['skipday', '⏭️ Next shift'],
 ];
 
@@ -301,6 +302,49 @@ export default function GameHUD({ onQuit, touch }: { onQuit: () => void; touch: 
               ))}
               {snapshot.dayReport.verdicts.length === 0 && <p>Nobody turned up today. Quiet one.</p>}
             </div>
+
+            {snapshot.dayReport.employeeOfTheShift && (
+              <div className="award">
+                <div className="award__ribbon">🏅 Employee of the shift</div>
+                <div className="award__who">{snapshot.dayReport.employeeOfTheShift}</div>
+              </div>
+            )}
+
+            {snapshot.dayReport.scores.length > 1 && (
+              <table className="scores">
+                <thead>
+                  <tr>
+                    <th>Who</th>
+                    <th title="fetched, fed, cuddled, tucked in">Looked after</th>
+                    <th title="ticked in on the register">Register</th>
+                    <th title="drawings taken and mess mopped">Tidied</th>
+                    <th title="socks given and nappies changed">Brave</th>
+                    <th title="handed to the right parent">Home</th>
+                    <th>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {snapshot.dayReport.scores.map((score) => (
+                    <tr
+                      key={score.seat}
+                      className={
+                        score.name === snapshot.dayReport?.employeeOfTheShift ? 'is-best' : ''
+                      }
+                    >
+                      <td>{score.name}</td>
+                      <td>{score.looked}</td>
+                      <td>{score.ticked}</td>
+                      <td>{score.tidied}</td>
+                      <td>{score.brave}</td>
+                      <td>{score.home}</td>
+                      <td>
+                        <strong>{score.total}</strong>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
 
             <p>
               You earned <strong>{snapshot.dayReport.earned} coins</strong> from happy parents.

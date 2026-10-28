@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import GameCanvas from './components/GameCanvas.tsx';
 import GameHUD from './components/GameHUD.tsx';
 import TouchControls from './components/TouchControls.tsx';
@@ -6,11 +6,27 @@ import MultiplayerPanel from './components/MultiplayerPanel.tsx';
 import { prefersTouchControls } from './game/input.ts';
 import { secretFor, secretTeaser } from './game/data/secrets.ts';
 import { netSession } from './game/net/session.ts';
+import { subscribe } from './game/bus.ts';
+import type { SecretMode } from './game/data/secrets.ts';
 import { SKINS, type SkinId } from './game/render/player.ts';
 import './App.css';
 
 export default function App() {
   const [playing, setPlaying] = useState(false);
+  /** 'waiting' means a guest who has joined a room the host has not opened. */
+  const [netRole, setNetRole] = useState<'alone' | 'host' | 'waiting'>('alone');
+  /**
+   * Which daycare is actually on screen. A guest in somebody's rotted daycare
+   * sees it drained of colour too, whatever they called their own.
+   */
+  const [lookMode, setLookMode] = useState<SecretMode>('normal');
+
+  useEffect(() => {
+    if (!playing) return;
+    return subscribe((snap) =>
+      setLookMode((current) => (current === snap.mode ? current : snap.mode)),
+    );
+  }, [playing]);
   // Checked once: a tablet does not turn into a laptop halfway through.
   const [touch] = useState(prefersTouchControls);
   const [name, setName] = useState('');
@@ -71,10 +87,18 @@ export default function App() {
             ))}
           </div>
 
-          <MultiplayerPanel onConnected={() => setPlaying(true)} />
+          <MultiplayerPanel onStart={() => setPlaying(true)} onRole={setNetRole} />
 
-          <button className="big-button" onClick={() => setPlaying(true)}>
-            Open the daycare
+          <button
+            className="big-button"
+            disabled={netRole === 'waiting'}
+            onClick={() => {
+              // Opening up lets everybody standing in the room come in too.
+              if (netSession.role === 'host') netSession.send({ t: 'start' });
+              setPlaying(true);
+            }}
+          >
+            {netRole === 'waiting' ? 'Waiting for the host…' : 'Open the daycare'}
           </button>
 
           <p className="title__controls">
@@ -90,7 +114,9 @@ export default function App() {
 
   return (
     <div
-      className={`stage${secret === 'rotted' ? ' stage--rotted' : ''}${touch ? ' stage--touch' : ''}`}
+      className={`stage${lookMode === 'rotted' || secret === 'rotted' ? ' stage--rotted' : ''}${
+        touch ? ' stage--touch' : ''
+      }`}
     >
       <GameCanvas daycareName={daycareName} skin={skin} firstDay={firstDay} />
       <GameHUD
