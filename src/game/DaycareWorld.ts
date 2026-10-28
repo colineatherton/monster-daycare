@@ -3395,6 +3395,7 @@ export class DaycareWorld {
     }
 
     if (this.me.heldModel) this.me.heldModel.rotation.y += dt * 1.2;
+    this.shakeFrontDoor(this.latestFrame ? Math.max(0, (this.latestFrame.dread - 0.5) * 2) : 0);
     this.stepCamera(dt);
   }
 
@@ -3542,9 +3543,7 @@ export class DaycareWorld {
       }
     }
 
-    const rattle = dread > 0.5 ? (dread - 0.5) * 2 : 0;
-    this.room.frontDoor.position.x =
-      kx(PLACES.frontDoor.x) + Math.sin(performance.now() * 0.05) * rattle * 0.05;
+    this.shakeFrontDoor(dread > 0.5 ? (dread - 0.5) * 2 : 0);
 
     // The highlight ring follows whatever the menu is open on.
     if (this.me.menuTarget) {
@@ -3560,6 +3559,26 @@ export class DaycareWorld {
     if (this.me.heldModel) this.me.heldModel.rotation.y += dt * 1.2;
 
     this.stepCamera(dt);
+  }
+
+  /**
+   * The front door, rattling. It does that when something inside is about to
+   * come through it — and in the rotted daycare it never stops, because
+   * something always is.
+   */
+  private shakeFrontDoor(rattle: number): void {
+    const howHard = this.mode === 'rotted' ? Math.max(rattle, 0.8) : rattle;
+    if (howHard <= 0) {
+      this.room.frontDoor.position.x = kx(PLACES.frontDoor.x);
+      this.room.frontDoor.rotation.z = 0;
+      return;
+    }
+    // Two frequencies that do not divide into each other, so it judders
+    // unevenly rather than swinging like a pendulum.
+    const now = performance.now();
+    const shove = Math.sin(now * 0.05) * 0.6 + Math.sin(now * 0.131) * 0.4;
+    this.room.frontDoor.position.x = kx(PLACES.frontDoor.x) + shove * howHard * 0.05;
+    this.room.frontDoor.rotation.z = shove * howHard * 0.012;
   }
 
   /**

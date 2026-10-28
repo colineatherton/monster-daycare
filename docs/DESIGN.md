@@ -219,6 +219,11 @@ white, and **every single child is an anomaly**, from the first shift — no two
 quiet days to learn the place. They keep their names, because the horror is
 what they are, not that nobody knows who they are.
 
+And the front door never stops rattling. Normally it only does that when
+something is about to come through it; here something always is. It shakes on
+two frequencies that do not divide into each other, so it judders unevenly
+rather than swinging like a pendulum.
+
 **Monster Nightcare.** The night shift, with the keys to everything: a panel of
 buttons that spawn coins, children, shadow ones, toothy ones, drawings and
 mess, calm everything down, make everybody happy, or skip straight to the next
