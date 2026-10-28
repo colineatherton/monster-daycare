@@ -308,6 +308,31 @@ your own keys, and the host only corrects them — a gentle nudge for ordinary
 drift, a snap if you are more than a couple of metres out. Waiting a round trip
 for your own feet feels horrible.
 
+### Whose menu is whose
+
+A guest's menu is worked out on the host, because the host is the only one who
+knows the state of the building — but the *options* in it depend on what that
+guest is holding, not on what the host is holding. Getting that wrong meant a
+guest with a teddy in their hands was never offered the chance to hand it over.
+
+Where the menu sits on screen is the opposite: that is worked out on the guest,
+because it depends on *their* camera. Sending the host's screen position made
+the menu drift about as the host walked around. And once a menu is open it
+stays where it opened, until you pick something or open another one — a menu
+that creeps while you are trying to tap it is horrible, and children wander.
+
+### Without a host there is no daycare
+
+A guest whose host has gone gets told so and sent back to the front. Before
+that it would keep dragging them back to the last position the host knew
+about, like an elastic band.
+
+### Getting there
+
+Walking to something you tapped goes through the doorway rather than straight
+at the wall between you and it. Every room opens off the playroom, so the whole
+of "pathfinding" is: out through my door, in through theirs.
+
 ### Still to come
 
 The night shift's monster mode: turning into an anomaly, eating your friends,

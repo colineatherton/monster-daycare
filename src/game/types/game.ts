@@ -235,6 +235,8 @@ export interface GameSnapshot {
   } | null;
   /** The open menu, positioned in screen pixels by the renderer. */
   menu: {
+    /** Identifies what the menu is about, so it can stay put while it is open. */
+    key: string;
     title: string;
     subtitle: string;
     actions: MenuAction[];
@@ -249,6 +251,8 @@ export interface GameSnapshot {
   } | null;
   /** Non-null once the run is over. */
   gameOver: { reason: string; detail: string } | null;
+  /** True for a guest once the host has gone. Nothing works without them. */
+  hostLeft: boolean;
   musicOn: boolean;
   hint: string;
 }

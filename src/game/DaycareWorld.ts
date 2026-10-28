@@ -178,6 +178,31 @@ function angleTo(from: number, to: number): number {
   return difference;
 }
 
+/**
+ * Which of the things under the pointer was meant.
+ *
+ * Big furniture is clicked through an invisible box the size of the whole
+ * thing, so a wrapper dropped between the beds sits *inside* the nap corner's
+ * box and the nearest hit is always the furniture. Small things on the floor
+ * therefore win, as long as they are at roughly the same depth — far enough
+ * behind and it is something in the next room, which was not meant at all.
+ */
+function pickFrom(hits: THREE.Intersection[]): THREE.Intersection | undefined {
+  if (hits.length === 0) return undefined;
+  const nearest = hits[0];
+  const small = hits.find((candidate) => {
+    if (candidate.distance > nearest.distance + 1.6) return false;
+    const data = candidate.object.userData as {
+      babyId?: string;
+      parentId?: string;
+      target?: ClickTarget;
+    };
+    if (data.babyId || data.parentId) return true;
+    return data.target?.kind === 'mess' || data.target?.kind === 'lostteddy';
+  });
+  return small ?? nearest;
+}
+
 /** Is this object, and everything it hangs off, actually visible? */
 function onScreen(object: THREE.Object3D): boolean {
   for (let node: THREE.Object3D | null = object; node; node = node.parent) {
@@ -407,6 +432,9 @@ export class DaycareWorld {
   /** Connection ids in seat order, so seat N belongs to one particular guest. */
   private seats: string[] = [];
   private sinceFrameMs = 0;
+  /** When the host last said anything, and whether we have given up on them. */
+  private lastHostWordAt = performance.now();
+  private hostLeft = false;
   private sinceInputMs = 0;
   /** The last picture of the building this guest was sent. */
   private latestFrame: FrameMessage | null = null;
@@ -489,7 +517,11 @@ export class DaycareWorld {
         this.musicOn = !this.musicOn;
         music.setMuted(!this.musicOn);
       },
-      admin: (what) => this.admin(what),
+      admin: (what) => {
+        this.admin(what);
+        // Answer the button now rather than on the next tick.
+        this.publishSnapshot();
+      },
     };
 
     music.setMuted(!this.musicOn);
@@ -502,7 +534,10 @@ export class DaycareWorld {
     }
 
     netSession.listen({
-      onStatus: () => undefined,
+      onStatus: (status) => {
+        // The host closing the room, or the connection failing outright.
+        if (this.amGuest && (status === 'idle' || status === 'error')) this.hostLeft = true;
+      },
       onMessage: (message, from) => this.onNetMessage(message, from),
       onGuestJoined: (id) => this.onGuestJoined(id),
       onGuestLeft: (id) => this.onGuestLeft(id),
@@ -860,9 +895,9 @@ export class DaycareWorld {
     // us, which is how the sock drawer was clickable before it was bought.
     pickable.push(...this.room.clickable.filter(onScreen));
 
-    const hit = this.raycaster.intersectObjects(pickable, false)[0];
+    const hit = pickFrom(this.raycaster.intersectObjects(pickable, false));
     if (!hit) {
-      this.me.menuTarget = null;
+      this.tap(null);
       return;
     }
 
@@ -887,6 +922,7 @@ export class DaycareWorld {
    */
   private tap(target: ClickTarget | null): void {
     this.me.menuTarget = target;
+    this.publishSnapshot();
     if (!this.amGuest) return;
     if (target) netSession.send({ t: 'tap', kind: target.kind, id: target.id });
     else netSession.send({ t: 'closemenu' });
@@ -1908,6 +1944,7 @@ export class DaycareWorld {
    */
   private applyFrame(frame: FrameMessage): void {
     this.latestFrame = frame;
+    this.lastHostWordAt = performance.now();
 
     // --- the grown-ups
     while (this.staff.length > frame.staff.length) this.removeStaff(this.staff.length - 1);
@@ -2705,7 +2742,9 @@ export class DaycareWorld {
     this.step(dt);
     this.renderer.render(this.scene, this.camera);
     this.frame += 1;
-    if (this.frame % 3 === 0) this.publishSnapshot();
+    // Every other frame: often enough that the screen feels immediate,
+    // rarely enough that React is not rebuilding the HUD sixty times a second.
+    if (this.frame % 2 === 0) this.publishSnapshot();
   };
 
   private step(dt: number): void {
@@ -2715,7 +2754,11 @@ export class DaycareWorld {
     // A guest does not simulate anything. The host is the only authority, so
     // the two buildings can never drift apart.
     if (this.amGuest) {
-      this.stepGuestVisuals(dt);
+      // Nothing works without the host, and without this the drift correction
+      // keeps dragging you back to the last place they knew about, like an
+      // elastic band.
+      if (!this.hostLeft && performance.now() - this.lastHostWordAt > 4000) this.hostLeft = true;
+      if (!this.hostLeft) this.stepGuestVisuals(dt);
       return;
     }
 
@@ -2753,7 +2796,7 @@ export class DaycareWorld {
       if (this.withinReach(who, who.pending.target)) {
         this.performPending(who);
       } else {
-        const spot = this.targetPosition(who.pending.target);
+        const spot = this.wayTo(who, this.targetPosition(who.pending.target));
         const toX = spot.x - who.x;
         const toY = spot.y - who.y;
         const distance = Math.hypot(toX, toY);
@@ -2789,6 +2832,29 @@ export class DaycareWorld {
     const swing = Math.sin(who.walkPhase) * 0.5;
     who.model.legs[0].rotation.x = swing;
     who.model.legs[1].rotation.x = -swing;
+  }
+
+  /**
+   * Where to head for next on the way to somewhere. Every room opens off the
+   * playroom, so getting anywhere is at most "out through my door, in through
+   * theirs" — without this you walk straight at the wall between you and the
+   * thing you tapped, and stop there forever.
+   */
+  private wayTo(who: Staff, destination: { x: number; y: number }): { x: number; y: number } {
+    const here = roomAt(who.x, who.y);
+    const there = roomAt(destination.x, destination.y);
+    if (here === there) return destination;
+
+    if (here !== 'play') {
+      const out = doorwayInto(here);
+      // Only aim for the doorway until we are actually through it.
+      if (out && Math.abs(who.x - out.x) > 30) return out;
+    }
+    if (there !== 'play') {
+      const into = doorwayInto(there);
+      if (into && Math.abs(who.x - into.x) > 30) return into;
+    }
+    return destination;
   }
 
   /** Axis-aligned sliding collision: try x, then y, so you slide along walls. */
@@ -3129,7 +3195,7 @@ export class DaycareWorld {
   private dropWrappers(): void {
     const howMany = Math.max(2, Math.min(6, this.babies.length));
     for (let i = 0; i < howMany; i += 1) {
-      const spot = randomSpotIn('play');
+      const spot = this.clearFloorSpot();
       const id = `mess-${this.nextMessId}`;
       this.nextMessId += 1;
       const group = buildMess(this.nextMessId);
@@ -3166,6 +3232,20 @@ export class DaycareWorld {
     });
     this.scene.add(group);
     this.lostTeddy = { x, y, group };
+  }
+
+  /** Somewhere in the playroom with no furniture on top of it. */
+  private clearFloorSpot(): { x: number; y: number } {
+    for (let attempt = 0; attempt < 24; attempt += 1) {
+      const spot = randomSpotIn('play');
+      const onFurniture = FURNITURE.some(
+        (thing) =>
+          Math.abs(spot.x - thing.x) < thing.w / 2 + 40 &&
+          Math.abs(spot.y - thing.y) < thing.h / 2 + 40,
+      );
+      if (!onFurniture) return spot;
+    }
+    return randomSpotIn('play');
   }
 
   private clearMesses(): void {
@@ -3520,11 +3600,12 @@ export class DaycareWorld {
   private snapshotFor(who: Staff): GameSnapshot {
     const menu = (() => {
       if (!who.menuTarget) return null;
-      const built = this.menuFor(this.me, who.menuTarget);
+      // `who`, not `this.me`: the options in somebody's menu depend on what
+      // *they* are holding, and a guest's menu is built here on the host.
+      const built = this.menuFor(who, who.menuTarget);
       if (!built) return null;
-      const spot = this.targetPosition(who.menuTarget);
-      const screen = this.screenPosition(spot.x, spot.y, who.menuTarget.kind === 'baby' ? 1.1 : 1.6);
-      return { ...built, screenX: screen.x, screenY: screen.y };
+      const key = `${who.menuTarget.kind}:${who.menuTarget.id ?? ''}`;
+      return { ...built, key, ...this.menuAnchor(who.menuTarget) };
     })();
 
     const snapshot: GameSnapshot = {
@@ -3584,13 +3665,36 @@ export class DaycareWorld {
       menu,
       dayReport: this.dayReport,
       gameOver: this.gameOver,
+      hostLeft: this.hostLeft,
       musicOn: this.musicOn,
       hint: who.hint,
     };
     return snapshot;
   }
 
+  /** Where a menu belongs on screen, according to *this* camera. */
+  private menuAnchor(target: ClickTarget): { screenX: number; screenY: number } {
+    const spot = this.targetPosition(target);
+    const screen = this.screenPosition(spot.x, spot.y, target.kind === 'baby' ? 1.1 : 1.6);
+    return { screenX: screen.x, screenY: screen.y };
+  }
+
   private publishSnapshot(): void {
-    publish(this.amGuest ? (this.latestFrame?.hud ?? this.snapshotFor(this.me)) : this.snapshotFor(this.me));
+    if (!this.amGuest) {
+      publish(this.snapshotFor(this.me));
+      return;
+    }
+    const hud = this.latestFrame?.hud;
+    if (!hud) {
+      publish(this.snapshotFor(this.me));
+      return;
+    }
+    // The host decides what is *in* a guest's menu, but where it belongs on
+    // screen depends on this camera, not the host's. Sending the host's screen
+    // position made the menu drift about as the host walked.
+    const target = this.me.menuTarget;
+    const dressed =
+      hud.menu && target ? { ...hud, menu: { ...hud.menu, ...this.menuAnchor(target) } } : hud;
+    publish(this.hostLeft ? { ...dressed, hostLeft: true, menu: null } : dressed);
   }
 }

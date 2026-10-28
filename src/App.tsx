@@ -5,6 +5,7 @@ import TouchControls from './components/TouchControls.tsx';
 import MultiplayerPanel from './components/MultiplayerPanel.tsx';
 import { prefersTouchControls } from './game/input.ts';
 import { secretFor, secretTeaser } from './game/data/secrets.ts';
+import { netSession } from './game/net/session.ts';
 import { SKINS, type SkinId } from './game/render/player.ts';
 import './App.css';
 
@@ -92,7 +93,13 @@ export default function App() {
       className={`stage${secret === 'rotted' ? ' stage--rotted' : ''}${touch ? ' stage--touch' : ''}`}
     >
       <GameCanvas daycareName={daycareName} skin={skin} firstDay={firstDay} />
-      <GameHUD onQuit={() => setPlaying(false)} touch={touch} />
+      <GameHUD
+        onQuit={() => {
+          netSession.leave();
+          setPlaying(false);
+        }}
+        touch={touch}
+      />
       {touch && <TouchControls />}
     </div>
   );

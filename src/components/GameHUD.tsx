@@ -55,6 +55,12 @@ function rosterLine(baby: GameSnapshot['babies'][number]): string {
 export default function GameHUD({ onQuit, touch }: { onQuit: () => void; touch: boolean }) {
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  /**
+   * Where a menu was when it opened. It stays there until you pick something
+   * or open a different one — a menu that creeps about while you are trying
+   * to tap it is horrible, and children wander.
+   */
+  const menuAnchor = useRef<{ key: string; left: number; top: number } | null>(null);
   // On a tablet the panel would sit on top of the thumbstick, so it starts
   // folded away behind its own button.
   const [adminOpen, setAdminOpen] = useState(!touch);
@@ -209,7 +215,14 @@ export default function GameHUD({ onQuit, touch }: { onQuit: () => void; touch: 
         <div
           className="menu"
           ref={menuRef}
-          data-anchor={`${Math.round(snapshot.menu.screenX)},${Math.round(snapshot.menu.screenY)}`}
+          data-anchor={(() => {
+            const open = menuAnchor.current;
+            if (open && open.key === snapshot.menu.key) return `${open.left},${open.top}`;
+            const left = Math.round(snapshot.menu.screenX);
+            const top = Math.round(snapshot.menu.screenY);
+            menuAnchor.current = { key: snapshot.menu.key, left, top };
+            return `${left},${top}`;
+          })()}
         >
           <button className="menu__close" onClick={() => commands.current?.closeMenu()}>
             ×
@@ -263,6 +276,8 @@ export default function GameHUD({ onQuit, touch }: { onQuit: () => void; touch: 
         </div>
       )}
 
+      {!snapshot.menu && menuAnchor.current !== null && ((menuAnchor.current = null), null)}
+
       <div className="hud__hint">{snapshot.hint}</div>
 
       {snapshot.dayReport && !snapshot.gameOver && (
@@ -292,6 +307,21 @@ export default function GameHUD({ onQuit, touch }: { onQuit: () => void; touch: 
             </p>
             <button className="big-button" onClick={() => commands.current?.nextDay()}>
               Open up tomorrow
+            </button>
+          </div>
+        </div>
+      )}
+
+      {snapshot.hostLeft && (
+        <div className="overlay">
+          <div className="card">
+            <h1>The host has gone</h1>
+            <p>
+              Whoever opened the room has closed it, so there is no daycare to be in any more.
+              Nothing here is yours to run — the host was keeping it all going.
+            </p>
+            <button className="big-button" onClick={onQuit}>
+              Back to the front
             </button>
           </div>
         </div>
