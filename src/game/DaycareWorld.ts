@@ -1831,7 +1831,8 @@ export class DaycareWorld {
       case 'finish': {
         // Everybody goes home at once, whoever happens to be holding them.
         if (!this.homeTime) this.beginHomeTime();
-        for (const parent of [...this.queue]) {
+        // A copy: sending somebody home takes them out of the queue.
+        for (const parent of this.queue.slice()) {
           const child = this.babyById(parent.babyId);
           if (child) {
             this.verdicts.push(this.verdictFor(child));
