@@ -130,6 +130,16 @@ export function buildRoom(): RoomModel {
   const root = new THREE.Group();
   const clickable: THREE.Object3D[] = [];
 
+  // Ground outside the building, so looking a little past the front wall shows
+  // the car park rather than a stripe of sky.
+  const outside = new THREE.Mesh(
+    new THREE.PlaneGeometry(ku(ROOM.width) * 2.2, ku(ROOM.depth) * 2.2),
+    mat(PALETTE.outside),
+  );
+  outside.rotation.x = -Math.PI / 2;
+  outside.position.y = -0.03;
+  root.add(outside);
+
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(ku(ROOM.width), ku(ROOM.depth)),
     mat(PALETTE.floor),
@@ -634,7 +644,7 @@ export function buildRoom(): RoomModel {
  * One of the children's drawings, framed and hung on the playroom wall.
  * `index` decides where along the wall it goes.
  */
-export function hangDrawing(index: number, colour: number): THREE.Group {
+export function hangDrawing(index: number, colour: number, subject?: 'teddy'): THREE.Group {
   const group = new THREE.Group();
 
   const frame = box(0.42, 0.34, 0.04, 0xffe3a8);
@@ -642,6 +652,37 @@ export function hangDrawing(index: number, colour: number): THREE.Group {
   const paper = box(0.36, 0.28, 0.02, 0xffffff);
   paper.position.z = 0.02;
   group.add(paper);
+
+  // Pip's picture is not scribbles. It is recognisably the teddy.
+  if (subject === 'teddy') {
+    const body = box(0.13, 0.12, 0.012, colour);
+    body.position.set(0, -0.03, 0.03);
+    group.add(body);
+    const head = box(0.09, 0.08, 0.012, colour);
+    head.position.set(0, 0.07, 0.03);
+    group.add(head);
+    for (const side of [-1, 1]) {
+      const ear = box(0.035, 0.035, 0.012, colour);
+      ear.position.set(side * 0.05, 0.12, 0.03);
+      group.add(ear);
+      const arm = box(0.045, 0.03, 0.012, colour);
+      arm.position.set(side * 0.09, -0.01, 0.03);
+      group.add(arm);
+      const leg = box(0.035, 0.045, 0.012, colour);
+      leg.position.set(side * 0.04, -0.11, 0.03);
+      group.add(leg);
+      const eye = box(0.012, 0.012, 0.012, 0x20232a);
+      eye.position.set(side * 0.022, 0.08, 0.037);
+      group.add(eye);
+    }
+    const perRow = 7;
+    group.position.set(
+      kx(ROOMS.play.x0 + 90 + (index % perRow) * 100),
+      1.45 - Math.floor(index / perRow) * 0.45,
+      kz(ROOMS.play.y0) - 0.02,
+    );
+    return group;
+  }
 
   // Scribbles in the colour of whoever drew it. The pattern comes from the
   // index, so the same drawing looks the same every time it is drawn.
@@ -692,6 +733,69 @@ export function buildMess(seed: number): THREE.Group {
   splodge.position.y = 0.006;
   group.add(splodge);
 
+  return group;
+}
+
+/**
+ * The teddy left behind on the playroom floor. Deliberately small and a bit
+ * lost-looking: the whole point is that it is easy to walk past for shifts on
+ * end without noticing.
+ */
+export function buildLostTeddy(): THREE.Group {
+  const group = new THREE.Group();
+
+  const body = ball(0.12, 0xc08552);
+  body.scale.set(1, 0.8, 1);
+  body.position.y = 0.1;
+  body.castShadow = true;
+  group.add(body);
+
+  const head = ball(0.085, 0xc08552);
+  head.position.set(0, 0.24, 0.02);
+  group.add(head);
+  for (const side of [-1, 1]) {
+    const ear = ball(0.035, 0xc08552);
+    ear.position.set(side * 0.065, 0.3, 0.01);
+    group.add(ear);
+  }
+  for (const side of [-1, 1]) {
+    const eye = ball(0.012, 0x20232a);
+    eye.position.set(side * 0.03, 0.25, 0.085);
+    group.add(eye);
+  }
+  const snout = ball(0.03, 0xe0c0a0);
+  snout.position.set(0, 0.22, 0.08);
+  group.add(snout);
+
+  // Arms and legs flopped out, because it has been dropped, not put down.
+  for (const side of [-1, 1]) {
+    const arm = ball(0.05, 0xc08552);
+    arm.scale.set(1.5, 0.7, 0.8);
+    arm.position.set(side * 0.15, 0.08, 0.04);
+    group.add(arm);
+    const leg = ball(0.055, 0xc08552);
+    leg.scale.set(0.8, 0.7, 1.5);
+    leg.position.set(side * 0.07, 0.06, -0.14);
+    group.add(leg);
+  }
+
+  group.rotation.y = 0.6;
+  return group;
+}
+
+/** The microphone, for the shift somebody finds one. */
+export function buildMicrophone(): THREE.Group {
+  const group = new THREE.Group();
+  const handle = cyl(0.016, 0.016, 0.14, 0x2b2b33);
+  handle.position.y = 0.07;
+  group.add(handle);
+  const head = ball(0.042, 0x8d949e);
+  head.position.y = 0.16;
+  group.add(head);
+  const band = torus(0.042, 0.008, 0x2b2b33);
+  band.rotation.x = Math.PI / 2;
+  band.position.y = 0.16;
+  group.add(band);
   return group;
 }
 

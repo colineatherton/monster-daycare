@@ -40,6 +40,24 @@ export const SPECIES: Species[] = [
     anomaly: 'none',
     fussyAbout: 'sock',
   },
+  // Two of them are not drawn from the pool: they are particular children who
+  // turn up again and again, and the point of both is that they never change.
+  {
+    id: 'pip',
+    name: 'Pip',
+    shape: 'blob',
+    colour: 0xa8d8c0,
+    anomaly: 'none',
+    fussyAbout: null,
+  },
+  {
+    id: 'bob',
+    name: 'Bob',
+    shape: 'square',
+    colour: 0xc9b6ff,
+    anomaly: 'none',
+    fussyAbout: null,
+  },
   {
     id: 'shadow',
     name: 'the one whose shadow is wrong',
@@ -58,6 +76,11 @@ export const SPECIES: Species[] = [
   },
 ];
 
+/** The ordinary children, drawn at random. Pip and Bob are not among them. */
+export const EVERYDAY_SPECIES = SPECIES.filter(
+  (species) => species.anomaly === 'none' && species.id !== 'pip' && species.id !== 'bob',
+);
+
 export function speciesById(id: string): Species {
   const found = SPECIES.find((s) => s.id === id);
   if (!found) throw new Error(`no species called ${id}`);
@@ -67,7 +90,7 @@ export function speciesById(id: string): Species {
 /** Names for the ordinary babies, so they feel like somebody's child. */
 export const BABY_NAMES = [
   'Mo',
-  'Pip',
+  'Nell',
   'Dot',
   'Bug',
   'Nub',

@@ -227,33 +227,45 @@ shift.
 Both are matched loosely, so capitals and stray spaces do not spoil it, and the
 front screen whispers something as soon as the name is right.
 
-## Wren's long game — still to design
+## Wren's long game
 
-Five Easter eggs, four of which run across many shifts. The beats are hers; the
-payoffs marked **?** are the ones still to decide.
+A **shift** is a day, and the number is kept in your browser, so the story
+carries on even if a run ends badly. `?shift=11` on the address jumps straight
+to a beat.
 
 ### Pip, who keeps coming back
 
 | Shift 4 | A monster called Pip visits for the first time. |
 | --- | --- |
-| Shift 8 | It remembers you gave it a teddy bear. |
-| Shift 12 | It leaves a drawing of that same teddy bear on your desk. |
-| Shift 20 | You find out why it keeps coming back. **?** |
+| Shift 8 | If you ever gave him a teddy, he turns up **carrying it**. |
+| Shift 12 | A picture of that same teddy is **already on your wall** when the shift opens. You did not put it there. |
+| Shift 20 | The front door has not opened yet, and **Pip is already here** — asleep in a bed, with the teddy, already ticked in on the register. At home time every other parent arrives. Nobody comes for Pip. |
 
-Every single time, it looks exactly the same. Same name, same everything.
+He is never drawn from the pool of strangers: same species, same colour, same
+name, every single time.
 
-### The teddy left behind
+**Why he comes back** is never said out loud, because a secret you are *told*
+is not a secret. It is shown: he was never collected.
 
-| Shift 3 | You accidentally leave a monster's teddy behind in the playroom. |
+### Bob's teddy
+
+| Shift 3 | At home time a teddy is left on the playroom floor, behind the rug. It stays there, shift after shift, until somebody picks it up. |
 | --- | --- |
-| Shift 7 | The monster starts searching for it. |
-| Shift 12 | Found it → it remembers your kindness. Didn't → it tells you something else instead. **?** |
+| Shift 7 | Bob is looking for something. He does not stop and stare at you like the others do — he is not looking for you — and nothing you fetch will settle him. |
+| Shift 12 | Gave it back → he is happy every shift from then on, and draws you a picture. Never found it → **his shadow turns into the horned triangle while you are watching.** He was never an ordinary child. |
 
 ### The microphone
 
-On shift 11 a monster finds a microphone and starts announcing everything. *I
-am eating a cracker. Bob just blinked.* Eventually it announces something that
-has not happened yet. **?**
+From shift 11 a monster finds a microphone and starts announcing, over a tannoy
+at the bottom of the screen. Most of it is true and pointless: *Dot just
+blinked. There are three things on the floor. It is shift 11. It has been shift
+11 all day.*
+
+Then it starts announcing things that **have not happened yet** — and the game
+makes them come true a few seconds later. *Wix is going to want a bouncy ball.*
+*Nell is going to want something. Quite soon.* (That one is about an anomaly,
+which makes the microphone a genuine early warning.) And once, if the shift is
+still young: *Everyone is going home now* — and then everyone goes home.
 
 ## Still to decide
 

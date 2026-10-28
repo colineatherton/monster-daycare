@@ -45,6 +45,7 @@ function rosterLine(baby: GameSnapshot['babies'][number]): string {
   if (baby.eruption === 'hunting') return 'HUNTING — give it a sock';
   if (baby.eruption === 'angry') return 'LOOSE — give it a sock';
   if (baby.asleep) return baby.wantsWaking ? 'wants its dummy 🍼' : 'asleep 💤';
+  if (baby.searching) return 'looking for something 🧸';
   if (baby.hasDrawing) return 'has a drawing for you 🖼️';
   if (baby.wants) return `wants ${baby.wants.name} ${baby.wants.emoji}`;
   if (baby.need) return `${baby.need} ${NEED_EMOJI[baby.need] ?? ''}`;
@@ -98,7 +99,7 @@ export default function GameHUD({ onQuit }: { onQuit: () => void }) {
     <div className="hud">
       <div className="hud__top">
         <div className="pill pill--name">{snapshot.daycareName}</div>
-        <div className="pill">Day {snapshot.dayNumber}</div>
+        <div className="pill">Shift {snapshot.dayNumber}</div>
         <div className="pill">🕑 {clock(snapshot.dayTimeLeftMs)}</div>
         <div className="pill">🪙 {snapshot.coins}</div>
         {snapshot.drawings > 0 && (
@@ -227,6 +228,13 @@ export default function GameHUD({ onQuit }: { onQuit: () => void }) {
         </div>
       )}
 
+      {snapshot.announcement && (
+        <div className="tannoy">
+          <span className="tannoy__icon">🎤</span>
+          {snapshot.announcement}
+        </div>
+      )}
+
       {snapshot.mode === 'nightcare' && (
         <div className="admin">
           <div className="admin__title">🌙 Night shift</div>
@@ -246,7 +254,7 @@ export default function GameHUD({ onQuit }: { onQuit: () => void }) {
         <div className="overlay">
           <div className="card">
             <h1>That is everyone</h1>
-            <p>Day {snapshot.dayReport.dayNumber} is over. Here is what they all said.</p>
+            <p>Shift {snapshot.dayReport.dayNumber} is over. Here is what they all said.</p>
 
             <div className="verdicts">
               {snapshot.dayReport.verdicts.map((verdict, index) => (
@@ -280,7 +288,7 @@ export default function GameHUD({ onQuit }: { onQuit: () => void }) {
             <h1>{snapshot.gameOver.reason}</h1>
             <p>{snapshot.gameOver.detail}</p>
             <p>
-              You lasted to day {snapshot.dayNumber} and earned {snapshot.coins} coins.
+              You lasted to shift {snapshot.dayNumber} and earned {snapshot.coins} coins.
             </p>
             <button className="big-button" onClick={() => commands.current?.restart()}>
               Open up again

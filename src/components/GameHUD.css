@@ -511,3 +511,54 @@
     padding: 7px 6px;
   }
 }
+
+/* -------------------------------------------------- the microphone */
+
+.tannoy {
+  position: absolute;
+  left: 50%;
+  bottom: 62px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: min(560px, 88vw);
+  background: #2b2b3a;
+  color: #f4f0ff;
+  border: 3px solid #f0b429;
+  border-radius: 10px;
+  padding: 7px 16px;
+  font-weight: 650;
+  font-size: 14px;
+  letter-spacing: 0.01em;
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.35);
+  animation: tannoy-in 220ms ease-out;
+}
+
+.tannoy__icon {
+  font-size: 17px;
+}
+
+@keyframes tannoy-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tannoy {
+    animation: none;
+  }
+}
+
+@media (max-width: 1000px) {
+  .tannoy {
+    font-size: 12.5px;
+    bottom: 54px;
+  }
+}

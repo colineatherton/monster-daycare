@@ -20,10 +20,10 @@ export default function App() {
   const secret = secretFor(daycareName);
   const teaser = secretTeaser(secret);
 
-  // ?day=3 opens straight onto the first day that has an anomaly in it, which
-  // saves playing through two quiet days every time you want to test the scary
-  // part.
-  const firstDay = Number(new URLSearchParams(window.location.search).get('day')) || 1;
+  // ?shift=11 opens straight onto a story beat, instead of working eleven
+  // shifts to get there. ?day= still works, because it is in the README.
+  const params = new URLSearchParams(window.location.search);
+  const firstDay = Number(params.get('shift') ?? params.get('day')) || 0;
 
   if (!playing) {
     return (

@@ -12,13 +12,16 @@ import {
   ROOM,
   ROOMS,
   SHOP,
+  STORY,
 } from './config.ts';
 import type { RoomId } from './config.ts';
 import { kx, ku, kz, disposeSubtree } from './render/three-helpers.ts';
 import {
   bedPosition,
   buildHighlightRing,
+  buildLostTeddy,
   buildMess,
+  buildMicrophone,
   buildRoom,
   hangDrawing,
   partitionWalls,
@@ -28,7 +31,8 @@ import { buildParent, buildPlayer, type SkinId } from './render/player.ts';
 import { buildItem, buildDreadGlow } from './render/items.ts';
 import { thoughtBubble, textLabel } from './render/labels.ts';
 import { ITEMS, itemById, itemsOfKind } from './data/items.ts';
-import { BABY_NAMES, SPECIES } from './data/species.ts';
+import { BABY_NAMES, EVERYDAY_SPECIES, SPECIES, speciesById } from './data/species.ts';
+import { loadStory, saveStory, type StoryState } from './data/story.ts';
 import { secretFor, type SecretMode } from './data/secrets.ts';
 import { attachInput, walkVector } from './input.ts';
 import { publish, commands } from './bus.ts';
@@ -107,6 +111,14 @@ const FURNITURE = [
   PLACES.shopCounter,
 ];
 
+/** Is this object, and everything it hangs off, actually visible? */
+function onScreen(object: THREE.Object3D): boolean {
+  for (let node: THREE.Object3D | null = object; node; node = node.parent) {
+    if (!node.visible) return false;
+  }
+  return true;
+}
+
 /** Which room a point on the plan is in. Defaults to the playroom. */
 function roomAt(x: number, y: number): RoomId {
   for (const id of Object.keys(ROOMS) as RoomId[]) {
@@ -148,6 +160,10 @@ function doorwayInto(room: RoomId): { x: number; y: number } | null {
 
 interface BabyEntity extends Baby {
   model: BabyModel;
+  /** Bob, on the shift he starts looking for his teddy. Nothing settles him. */
+  searching: boolean;
+  /** Something carried or clutched: Pip's remembered teddy, or a microphone. */
+  prop: THREE.Group | null;
   /** Waypoints left to walk, so it goes through doorways and not through
    *  walls. Every room opens off the playroom, so this is never more than
    *  two corners and a destination. */
@@ -226,6 +242,14 @@ export class DaycareWorld {
 
   private daycareName: string;
   private coins = 0;
+  /**
+   * The shift number, which is also the day number, and which is kept in the
+   * browser so the twenty-shift story survives a lost run. Difficulty stops
+   * climbing at shift 7 anyway, so resuming high is no harder than resuming
+   * low.
+   */
+  private story: StoryState;
+  /** The shift number. Displayed, and what every story beat keys off. */
   private dayNumber = 1;
   private dayTimeLeftMs: number = DAY.lengthMs;
   private spawnQueue: Species[] = [];
@@ -240,6 +264,23 @@ export class DaycareWorld {
   private nextMessId = 1;
   private holdingMop = false;
   private mopModel: THREE.Group | null = null;
+
+  /** Bob's teddy, lying on the playroom floor where you left it. */
+  private lostTeddy: { x: number; y: number; group: THREE.Group } | null = null;
+
+  /** The monster with the microphone, on the shift it finds one. */
+  private announcerId: string | null = null;
+  private announcement: string | null = null;
+  private announcementMsLeft = 0;
+  private nextAnnounceMs = 6000;
+  private announcementsMade = 0;
+  /**
+   * Something it has announced that has not happened yet. When the timer runs
+   * out the game makes it true, which is the whole joke.
+   */
+  private prophecy: { kind: 'want' | 'break' | 'home'; babyId?: string; itemId?: string } | null =
+    null;
+  private prophecyMsLeft = 0;
 
   private menuTarget: ClickTarget | null = null;
   private pending: { target: ClickTarget; actionId: string } | null = null;
@@ -267,6 +308,11 @@ export class DaycareWorld {
     this.canvas = canvas;
     this.daycareName = options.daycareName;
     this.mode = secretFor(options.daycareName);
+    this.story = loadStory();
+    if (options.firstDay && options.firstDay > 1) {
+      // ?shift=N, for jumping straight to a story beat while building it.
+      this.story.shiftsWorked = options.firstDay - 1;
+    }
     this.firstDay = Math.max(1, options.firstDay ?? 1);
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -352,6 +398,8 @@ export class DaycareWorld {
 
   private startDay(day: number): void {
     this.dayNumber = day;
+    this.story.shiftsWorked = day - 1;
+    saveStory(this.story);
     this.dayTimeLeftMs = DAY.lengthMs;
     this.nextSpawnMs = 1500;
     this.homeTime = false;
@@ -362,11 +410,10 @@ export class DaycareWorld {
     this.eaten = [];
     this.setAnomalyDoorBroken(false);
 
-    const ordinary = SPECIES.filter((s) => s.anomaly === 'none');
     const anomalies = SPECIES.filter((s) => s.anomaly !== 'none');
 
-    // Day 1 and 2 have no anomalies at all. The first one turns up on day 3,
-    // once you already know where everything is. Unless this is the rotted
+    // Shifts 1 and 2 have no anomalies at all. The first one turns up on shift
+    // 3, once you already know where everything is. Unless this is the rotted
     // daycare, where there was never anything else.
     const babyCount = Math.min(2 + (day - 1), 6);
     const anomalyCount =
@@ -374,7 +421,7 @@ export class DaycareWorld {
 
     const queue: Species[] = [];
     for (let i = 0; i < babyCount - anomalyCount; i += 1) {
-      queue.push(ordinary[(i + day) % ordinary.length]);
+      queue.push(EVERYDAY_SPECIES[(i + day) % EVERYDAY_SPECIES.length]);
     }
     for (let i = 0; i < anomalyCount; i += 1) {
       queue.push(anomalies[(i + day) % anomalies.length]);
@@ -384,7 +431,28 @@ export class DaycareWorld {
       const j = Math.floor(Math.random() * (i + 1));
       [queue[i], queue[j]] = [queue[j], queue[i]];
     }
+
+    // The two regulars take places in the queue rather than adding to it, so
+    // the room never gets more crowded than it should be.
+    this.bookPlaceFor(queue, 'bob', day >= STORY.bobFrom && this.mode !== 'rotted');
+    this.bookPlaceFor(queue, 'pip', day >= STORY.pipFrom && this.mode !== 'rotted');
+
     this.spawnQueue = queue;
+    this.openShiftStory();
+  }
+
+  /** Put a particular child into the morning's queue, replacing a stranger. */
+  private bookPlaceFor(queue: Species[], id: string, wanted: boolean): void {
+    if (!wanted) return;
+    if (queue.some((species) => species.id === id)) return;
+    const regular = speciesById(id);
+    // Only take a stranger's place. Booking Pip in used to overwrite Bob,
+    // because Bob was in the first ordinary slot by then.
+    const slot = queue.findIndex(
+      (species) => species.anomaly === 'none' && species.id !== 'pip' && species.id !== 'bob',
+    );
+    if (slot === -1) queue.push(regular);
+    else queue[slot] = regular;
   }
 
   private restart(): void {
@@ -416,7 +484,8 @@ export class DaycareWorld {
     this.menuTarget = null;
     this.pending = null;
     this.hint = 'Click a monster, or click a cupboard to fetch something.';
-    this.startDay(this.firstDay);
+    // Losing does not cost you the story. You open up again on the same shift.
+    this.startDay(Math.max(1, this.story.shiftsWorked + 1));
   }
 
   dispose(): void {
@@ -444,7 +513,7 @@ export class DaycareWorld {
 
   /* -------------------------------------------------------------- babies */
 
-  private spawnBaby(species: Species): void {
+  private spawnBaby(species: Species, options: { quietly?: boolean } = {}): void {
     const id = `baby-${this.nextBabyId}`;
     const model = buildBaby(species);
     model.body.traverse((child) => {
@@ -455,8 +524,12 @@ export class DaycareWorld {
     });
     this.scene.add(model.root);
 
-    const name =
-      species.anomaly === 'none' || this.mode === 'rotted'
+    const regular = species.id === 'pip' || species.id === 'bob';
+    const name = regular
+      ? // The two who come back are always called the same thing. That is the
+        // entire point of them.
+        species.name
+      : species.anomaly === 'none' || this.mode === 'rotted'
         ? BABY_NAMES[this.nextBabyId % BABY_NAMES.length]
         : '???';
     const nameTag = textLabel(name);
@@ -514,13 +587,17 @@ export class DaycareWorld {
       glow,
       walkPhase: Math.random() * 6,
       path: [],
+      searching: false,
+      prop: null,
       ritualForm: null,
       room,
     };
 
     this.nextBabyId += 1;
     this.babies.push(baby);
-    this.dropOff(species);
+    // Shift 20: nobody brought him. That is rather the point.
+    if (!options.quietly) this.dropOff(species);
+    this.arrivalStory(baby);
   }
 
   private removeBaby(baby: BabyEntity): void {
@@ -601,7 +678,19 @@ export class DaycareWorld {
         if ((child as THREE.Mesh).isMesh) pickable.push(child);
       });
     }
-    pickable.push(...this.room.clickable);
+    for (const mess of this.messes) {
+      mess.group.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) pickable.push(child);
+      });
+    }
+    if (this.lostTeddy) {
+      this.lostTeddy.group.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) pickable.push(child);
+      });
+    }
+    // Only things you can actually see. The raycaster does not check this for
+    // us, which is how the sock drawer was clickable before it was bought.
+    pickable.push(...this.room.clickable.filter(onScreen));
 
     const hit = this.raycaster.intersectObjects(pickable, false)[0];
     if (!hit) {
@@ -674,6 +763,11 @@ export class DaycareWorld {
     if (target.kind === 'mess') {
       const mess = this.messes.find((m) => m.id === target.id);
       return mess ? { x: mess.x, y: mess.y } : { x: this.playerX, y: this.playerY };
+    }
+    if (target.kind === 'lostteddy') {
+      return this.lostTeddy
+        ? { x: this.lostTeddy.x, y: this.lostTeddy.y }
+        : { x: this.playerX, y: this.playerY };
     }
     const place = this.placeFor(target.kind);
     return { x: place.x, y: place.y + place.h / 2 + 70 };
@@ -911,6 +1005,12 @@ export class DaycareWorld {
           subtitle: `You have ${this.coins} coins.`,
           actions: this.shopActions(),
         };
+      case 'lostteddy':
+        return {
+          title: 'A teddy',
+          subtitle: 'Face down behind the rug. It has been here a while.',
+          actions: [{ id: 'findteddy', label: '🧸 Pick it up' }],
+        };
       case 'mess':
         return {
           title: 'Somebody\'s lunch',
@@ -1054,7 +1154,12 @@ export class DaycareWorld {
 
   /** Close enough to act? */
   private withinReach(target: ClickTarget): boolean {
-    if (target.kind === 'baby' || target.kind === 'parent' || target.kind === 'mess') {
+    if (
+      target.kind === 'baby' ||
+      target.kind === 'parent' ||
+      target.kind === 'mess' ||
+      target.kind === 'lostteddy'
+    ) {
       const spot = this.targetPosition(target);
       return Math.hypot(spot.x - this.playerX, spot.y - this.playerY) <= PLAYER.reach;
     }
@@ -1109,6 +1214,35 @@ export class DaycareWorld {
 
     if (target.kind === 'parent') {
       this.handToParent(target.id, actionId);
+      return;
+    }
+
+    if (actionId.startsWith('mop:')) {
+      if (!this.holdingMop) return;
+      const id = actionId.slice(4);
+      const index = this.messes.findIndex((m) => m.id === id);
+      if (index === -1) return;
+      const [mess] = this.messes.splice(index, 1);
+      this.scene.remove(mess.group);
+      disposeSubtree(mess.group);
+      this.coins += LUNCH.moppingCoins;
+      this.hint =
+        this.messes.length === 0
+          ? 'Floor spotless. Nicely done.'
+          : `Mopped. ${this.messes.length} more to go.`;
+      music.coin();
+      return;
+    }
+
+    if (actionId === 'findteddy') {
+      this.setLostTeddy(false);
+      this.story.teddyFound = true;
+      saveStory(this.story);
+      this.setMop(false);
+      this.holding = itemById('teddy');
+      this.setHeldModel(buildItem(this.holding));
+      this.hint = 'A teddy, behind the rug. Somebody has been missing this.';
+      music.coin();
       return;
     }
 
@@ -1173,6 +1307,20 @@ export class DaycareWorld {
       this.holding = null;
       this.setHeldModel(null);
 
+      // The one thing he is looking for.
+      if (baby.searching && item.id === 'teddy') {
+        baby.searching = false;
+        baby.happiness = 100;
+        baby.nextNeedMs = BABIES.needGapMs;
+        this.giveProp(baby, 'teddy');
+        this.story.teddyFound = true;
+        saveStory(this.story);
+        this.coins += 40;
+        this.hint = `${baby.name} has it back. He will not forget that.`;
+        music.coin();
+        return;
+      }
+
       if (baby.need && this.satisfies(baby, item)) {
         // Crayons are a special case: it does not want to *have* them, it wants
         // to sit and draw with them for a bit and then show you the picture.
@@ -1205,23 +1353,6 @@ export class DaycareWorld {
           : `${baby.name} did not want that.`;
         music.buzz();
       }
-      return;
-    }
-
-    if (actionId.startsWith('mop:')) {
-      if (!this.holdingMop) return;
-      const id = actionId.slice(4);
-      const index = this.messes.findIndex((m) => m.id === id);
-      if (index === -1) return;
-      const [mess] = this.messes.splice(index, 1);
-      this.scene.remove(mess.group);
-      disposeSubtree(mess.group);
-      this.coins += LUNCH.moppingCoins;
-      this.hint =
-        this.messes.length === 0
-          ? 'Floor spotless. Nicely done.'
-          : `Mopped. ${this.messes.length} more to go.`;
-      music.coin();
       return;
     }
 
@@ -1435,6 +1566,260 @@ export class DaycareWorld {
     }
   }
 
+  /* ------------------------------------------------------- Wren's long game */
+
+  /**
+   * Everything that is true about a particular shift rather than about the
+   * game in general. Called once, as the shift opens.
+   */
+  private openShiftStory(): void {
+    this.setLostTeddy(this.story.teddyDropped && !this.story.teddyFound);
+
+    this.announcerId = null;
+    this.announcement = null;
+    this.announcementsMade = 0;
+    this.prophecy = null;
+    this.nextAnnounceMs = 14_000;
+
+    // Shift 12: the picture Pip drew of the teddy you gave him turns up on
+    // your wall, and you did not put it there.
+    if (this.dayNumber === STORY.pipDrawsOn && this.story.pipTeddy) {
+      this.room.pictureWall.add(hangDrawing(this.onTheWall, 0xc08552, 'teddy'));
+      this.onTheWall += 1;
+    }
+
+    // Shift 20. The front door has not opened yet.
+    if (this.dayNumber >= STORY.pipTruthOn && this.mode !== 'rotted') {
+      this.spawnQueue = this.spawnQueue.filter((species) => species.id !== 'pip');
+      this.spawnBaby(speciesById('pip'), { quietly: true });
+      const pip = this.babies.find((baby) => baby.species.id === 'pip');
+      if (pip) {
+        const bed = bedPosition(0);
+        pip.x = bed.x;
+        pip.y = bed.y;
+        pip.room = roomAt(bed.x, bed.y);
+        pip.asleep = true;
+        pip.bedIndex = 0;
+        pip.sleepMsLeft = BEDS.sleepMs * 3;
+        pip.tickedIn = true;
+        this.giveProp(pip, 'teddy');
+      }
+      this.hint = 'The front door has not opened yet. Pip is already here.';
+    }
+  }
+
+  /** Something small carried about by a particular child. */
+  private giveProp(baby: BabyEntity, what: 'teddy' | 'microphone'): void {
+    if (baby.prop) {
+      baby.model.body.remove(baby.prop);
+      disposeSubtree(baby.prop);
+      baby.prop = null;
+    }
+    const prop = what === 'teddy' ? buildItem(itemById('teddy')) : buildMicrophone();
+    prop.scale.setScalar(0.7);
+    prop.position.set(0.3, 0.16, 0.24);
+    baby.model.body.add(prop);
+    baby.prop = prop;
+  }
+
+  /** Called as each child arrives, for the ones who are not strangers. */
+  private arrivalStory(baby: BabyEntity): void {
+    if (baby.species.id === 'pip') {
+      // Shift 8: he turns up carrying the teddy, and he has not changed a bit.
+      if (this.dayNumber >= STORY.pipRemembersOn && this.story.pipTeddy) {
+        this.giveProp(baby, 'teddy');
+        baby.happiness = 100;
+      }
+      return;
+    }
+
+    if (baby.species.id === 'bob') {
+      if (this.story.bobTurned) {
+        // He stopped pretending a while ago.
+        this.becomeShadow(baby);
+        return;
+      }
+      // Shift 7 onwards, if nobody went back for it, he is looking for it.
+      if (
+        this.dayNumber >= STORY.bobSearchesOn &&
+        this.story.teddyDropped &&
+        !this.story.teddyFound
+      ) {
+        baby.searching = true;
+        baby.need = null;
+        baby.wantedItemId = null;
+      }
+      // Shift 12 onwards, if you did go back for it, he never forgets it.
+      if (this.dayNumber >= STORY.bobDecidesOn && this.story.teddyFound) {
+        baby.happiness = 100;
+        baby.hasDrawing = true;
+      }
+    }
+  }
+
+  /** Bob, finding out what he is, in front of you. */
+  private becomeShadow(baby: BabyEntity): void {
+    baby.searching = false;
+    baby.species = { ...baby.species, anomaly: 'shadow' };
+    this.scene.remove(baby.model.root);
+    disposeSubtree(baby.model.root);
+
+    const model = buildBaby(baby.species);
+    model.body.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        child.castShadow = false;
+        child.userData.babyId = baby.id;
+      }
+    });
+    model.root.add(baby.nameTag);
+    model.root.add(baby.glow);
+    this.scene.add(model.root);
+    baby.model = model;
+    baby.bubble = null;
+    baby.bubbleFor = '';
+    baby.prop = null;
+  }
+
+  /** Beats that happen partway through a shift rather than at the start. */
+  private stepShiftStory(ms: number): void {
+    // Shift 12, with the teddy still behind the rug. Bob stops pretending.
+    if (
+      this.dayNumber >= STORY.bobDecidesOn &&
+      this.story.teddyDropped &&
+      !this.story.teddyFound &&
+      !this.story.bobTurned
+    ) {
+      const bob = this.babies.find((baby) => baby.species.id === 'bob');
+      // Give it a moment, so you are watching him when his shadow changes.
+      if (bob && this.dayTimeLeftMs < DAY.lengthMs - 30_000) {
+        this.story.bobTurned = true;
+        saveStory(this.story);
+        this.becomeShadow(bob);
+        this.hint = 'Bob has stopped looking for it.';
+        music.dread();
+      }
+    }
+
+    if (this.dayNumber >= STORY.microphoneOn) this.stepMicrophone(ms);
+  }
+
+  /* ----------------------------------------------------- the microphone */
+
+  private stepMicrophone(ms: number): void {
+    if (this.announcementMsLeft > 0) this.announcementMsLeft -= ms;
+
+    // Whatever it said is about to come true.
+    if (this.prophecy) {
+      this.prophecyMsLeft -= ms;
+      if (this.prophecyMsLeft <= 0) {
+        this.fulfil(this.prophecy);
+        this.prophecy = null;
+      }
+    }
+
+    const announcer = this.babyById(this.announcerId ?? undefined);
+    if (!announcer || announcer.eruption !== 'none') {
+      const candidate = this.babies.find(
+        (baby) => baby.eruption === 'none' && !baby.asleep && baby.species.anomaly === 'none',
+      );
+      if (!candidate) return;
+      this.announcerId = candidate.id;
+      this.giveProp(candidate, 'microphone');
+      this.say(`${candidate.name} has found a microphone.`);
+      return;
+    }
+
+    this.nextAnnounceMs -= ms;
+    if (this.nextAnnounceMs > 0) return;
+    this.nextAnnounceMs = 9000 + Math.random() * 5000;
+    this.announcementsMade += 1;
+
+    // It starts by narrating things that are already true, and only later
+    // starts announcing things that are not true yet.
+    const readyToPredict = this.announcementsMade >= 4 && this.announcementsMade % 3 === 0;
+    if (readyToPredict && !this.prophecy) this.predict(announcer);
+    else this.say(this.observation(announcer));
+  }
+
+  private say(line: string): void {
+    this.announcement = line;
+    this.announcementMsLeft = 7000;
+  }
+
+  /** Something that is already true, reported as though it mattered. */
+  private observation(announcer: BabyEntity): string {
+    const others = this.babies.filter((baby) => baby !== announcer);
+    const someone = others[Math.floor(Math.random() * others.length)];
+    const lines: string[] = [];
+
+    if (someone) {
+      lines.push(`${someone.name} just blinked.`);
+      lines.push(`${someone.name} is in ${ROOMS[someone.room].name}.`);
+      if (someone.asleep) lines.push(`${someone.name} is asleep. I am not.`);
+      const wants = this.wantedItem(someone);
+      if (wants) lines.push(`${someone.name} still wants ${wants.name}. Still.`);
+      if (someone.species.anomaly !== 'none') {
+        lines.push(`I am not going to say anything about ${someone.name}.`);
+      }
+    }
+    if (this.holding) lines.push(`The teacher is carrying ${this.holding.name}. For some reason.`);
+    if (this.messes.length > 0) lines.push(`There are ${this.messes.length} things on the floor.`);
+    if (this.lostTeddy) lines.push('There is something behind the rug.');
+    lines.push(`It is shift ${this.dayNumber}. It has been shift ${this.dayNumber} all day.`);
+    lines.push('I am eating a cracker.');
+    lines.push('Nothing is happening.');
+
+    return lines[Math.floor(Math.random() * lines.length)];
+  }
+
+  /** Something that is not true yet. It will be. */
+  private predict(announcer: BabyEntity): void {
+    const anomaly = this.babies.find(
+      (baby) => baby.species.anomaly !== 'none' && baby.eruption === 'none' && baby.need === null,
+    );
+    if (anomaly) {
+      this.prophecy = { kind: 'break', babyId: anomaly.id };
+      this.prophecyMsLeft = 5000;
+      this.say(`${anomaly.name} is going to want something. Quite soon.`);
+      return;
+    }
+
+    const ordinary = this.babies.filter(
+      (baby) => baby !== announcer && baby.need === null && !baby.asleep && baby.eruption === 'none',
+    );
+    const who = ordinary[Math.floor(Math.random() * ordinary.length)];
+    if (who) {
+      const choices = itemsOfKind('toy');
+      const item = choices[Math.floor(Math.random() * choices.length)];
+      this.prophecy = { kind: 'want', babyId: who.id, itemId: item.id };
+      this.prophecyMsLeft = 5000;
+      this.say(`${who.name} is going to want ${item.name}.`);
+      return;
+    }
+
+    if (this.dayTimeLeftMs > 40_000) {
+      this.prophecy = { kind: 'home' };
+      this.prophecyMsLeft = 6000;
+      this.say('Everyone is going home now.');
+    }
+  }
+
+  private fulfil(prophecy: { kind: 'want' | 'break' | 'home'; babyId?: string; itemId?: string }): void {
+    if (prophecy.kind === 'home') {
+      this.dayTimeLeftMs = Math.min(this.dayTimeLeftMs, 1);
+      return;
+    }
+    const baby = this.babyById(prophecy.babyId);
+    if (!baby || baby.need !== null) return;
+    if (prophecy.kind === 'break') {
+      this.giveNeed(baby);
+      return;
+    }
+    baby.need = 'bored';
+    baby.needAgeMs = 0;
+    baby.wantedItemId = prophecy.itemId ?? 'teddy';
+  }
+
   /** Bring an erupted anomaly back down to being somebody's child again. */
   private calmDown(baby: BabyEntity): void {
     if (baby.ritualForm) {
@@ -1566,6 +1951,13 @@ export class DaycareWorld {
 
   private beginHomeTime(): void {
     this.homeTime = true;
+
+    // Shift 3. Somebody's teddy is still on the floor, and nobody notices.
+    if (this.dayNumber >= STORY.teddyLeftOn && !this.story.teddyDropped) {
+      this.story.teddyDropped = true;
+      saveStory(this.story);
+      this.setLostTeddy(true);
+    }
     this.clearDroppers();
     this.holding = null;
     this.setHeldModel(null);
@@ -1575,12 +1967,17 @@ export class DaycareWorld {
     // One parent per child who was dropped off this morning, including the
     // ones that are no longer here.
     const entries = [
-      ...this.babies.map((baby) => ({
-        id: baby.id,
-        name: baby.name,
-        species: baby.species,
-        eaten: false,
-      })),
+      ...this.babies
+        // Shift 20: everybody else's parent arrives.
+        .filter(
+          (baby) => !(baby.species.id === 'pip' && this.dayNumber >= STORY.pipTruthOn),
+        )
+        .map((baby) => ({
+          id: baby.id,
+          name: baby.name,
+          species: baby.species,
+          eaten: false,
+        })),
       ...this.eaten.map((record) => ({ ...record, eaten: true })),
     ];
 
@@ -1687,6 +2084,8 @@ export class DaycareWorld {
       this.homeTime = false;
       for (const baby of this.babies) this.removeBaby(baby);
       this.babies = [];
+      this.announcerId = null;
+      this.announcement = null;
     }
   }
 
@@ -1792,6 +2191,7 @@ export class DaycareWorld {
         this.stepDroppers(ms, dt);
       }
       this.stepBabies(ms, dt);
+      this.stepShiftStory(ms);
       this.stepDay(ms);
     }
     this.stepVisuals(dt);
@@ -1992,7 +2392,7 @@ export class DaycareWorld {
 
       // Needs. Nobody starts wanting things once the parents have arrived.
       if (baby.need === null) {
-        if (!this.homeTime && baby.drawingMs <= 0 && !baby.hasDrawing) {
+        if (!this.homeTime && baby.drawingMs <= 0 && !baby.hasDrawing && !baby.searching) {
           baby.nextNeedMs -= ms;
           if (baby.nextNeedMs <= 0) this.giveNeed(baby);
         }
@@ -2035,6 +2435,26 @@ export class DaycareWorld {
         } else {
           baby.facing += (0 - baby.facing) * Math.min(1, dt * 5);
           baby.walkPhase += dt * 2;
+        }
+      } else if (baby.searching) {
+        // He does not stop and look at you. He is not looking for you.
+        const toX = baby.wanderX - baby.x;
+        const toY = baby.wanderY - baby.y;
+        const distance = Math.hypot(toX, toY);
+        if (distance < 16) {
+          const next = baby.path.shift();
+          if (next) {
+            baby.wanderX = next.x;
+            baby.wanderY = next.y;
+          } else {
+            this.wanderSomewhere(baby);
+          }
+        } else {
+          baby.x += (toX / distance) * BABIES.speed * 1.5 * dt;
+          baby.y += (toY / distance) * BABIES.speed * 1.5 * dt;
+          baby.facing = Math.atan2(toX, toY);
+          baby.walkPhase += dt * 10;
+          baby.room = roomAt(baby.x, baby.y);
         }
       } else if (baby.need !== null && baby.needAgeMs > BABIES.settleAfterMs) {
         // A baby that has been waiting a few seconds stops and looks at you,
@@ -2180,6 +2600,31 @@ export class DaycareWorld {
     this.hint = 'Lunch is over and the floor is covered. Get the mop from the bucket.';
   }
 
+  /**
+   * Put Bob's teddy on the playroom floor, or take it away again. It is a real
+   * object that survives from shift to shift until somebody picks it up.
+   */
+  private setLostTeddy(there: boolean): void {
+    if (this.lostTeddy) {
+      this.scene.remove(this.lostTeddy.group);
+      disposeSubtree(this.lostTeddy.group);
+      this.lostTeddy = null;
+    }
+    if (!there) return;
+
+    // Always the same spot, so it is findable once you know to look, and
+    // tucked behind the rug rather than in the middle of the floor.
+    const x = 1520;
+    const y = 980;
+    const group = buildLostTeddy();
+    group.position.set(kx(x), 0, kz(y));
+    group.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) child.userData.target = { kind: 'lostteddy' };
+    });
+    this.scene.add(group);
+    this.lostTeddy = { x, y, group };
+  }
+
   private clearMesses(): void {
     for (const mess of this.messes) {
       this.scene.remove(mess.group);
@@ -2297,6 +2742,7 @@ export class DaycareWorld {
       let wanted = '';
       if (baby.eruption === 'ritual') wanted = '🌀';
       else if (baby.eruption !== 'none') wanted = '🧦';
+      else if (baby.searching) wanted = '🧸';
       else if (baby.asleep) wanted = baby.wantsWaking ? '🍼' : '💤';
       else if (baby.hasDrawing) wanted = '🖼️';
       else if (baby.drawingMs > 0) wanted = '🖍️';
@@ -2387,10 +2833,11 @@ export class DaycareWorld {
   private stepCamera(dt: number): void {
     const halfWidth = ku(ROOM.width) / 2;
     const halfDepth = ku(ROOM.depth) / 2;
-    // The bottom margin is the big one: without it the camera looks straight
-    // over the front wall and a quarter of the screen is sky.
+    // Enough margin that the camera does not look far past the building, but
+    // not so much that you can walk off the bottom of your own screen — which
+    // you could, and which made the mop bucket unreachable.
     const marginX = Math.min(halfWidth, 5.2);
-    const marginZ = Math.min(halfDepth, 4.6);
+    const marginZ = Math.min(halfDepth, 3.0);
 
     const focusX = Math.min(Math.max(kx(this.playerX), -halfWidth + marginX), halfWidth - marginX);
     const focusZ = Math.min(Math.max(kz(this.playerY), -halfDepth + marginZ), halfDepth - marginZ);
@@ -2435,6 +2882,7 @@ export class DaycareWorld {
       dayTimeLeftMs: Math.max(0, this.dayTimeLeftMs),
       playerRoom: ROOMS[roomAt(this.playerX, this.playerY)].name,
       lunchtime: this.lunchtime,
+      announcement: this.announcementMsLeft > 0 ? this.announcement : null,
       toTickIn: this.babies.filter((baby) => !baby.tickedIn).length,
       messCount: this.messes.length,
       holdingMop: this.holdingMop,
@@ -2451,6 +2899,7 @@ export class DaycareWorld {
           need: baby.need,
           wants: wanted ? { emoji: wanted.emoji, name: wanted.name } : null,
           hasDrawing: baby.hasDrawing,
+          searching: baby.searching,
           tickedIn: baby.tickedIn,
           asleep: baby.asleep,
           wantsWaking: baby.wantsWaking,

@@ -171,6 +171,27 @@ export const LUNCH = {
   messTolerated: 2,
 } as const;
 
+/** Which shift each of Wren's story beats lands on. */
+export const STORY = {
+  /** Bob starts coming, so he is a face you know before he loses anything. */
+  bobFrom: 1,
+  /** Bob's teddy gets left behind at the end of this shift. */
+  teddyLeftOn: 3,
+  /** Pip visits for the first time. */
+  pipFrom: 4,
+  /** Bob starts hunting for the teddy. */
+  bobSearchesOn: 7,
+  /** Pip turns up carrying the teddy you once gave him. */
+  pipRemembersOn: 8,
+  /** The microphone. */
+  microphoneOn: 11,
+  /** Pip's drawing arrives; and Bob either thanks you or stops pretending. */
+  pipDrawsOn: 12,
+  bobDecidesOn: 12,
+  /** You find out why Pip keeps coming back. */
+  pipTruthOn: 20,
+} as const;
+
 export const DAY = {
   /** How long a day lasts before the parents come back. */
   lengthMs: 240_000,
@@ -184,7 +205,7 @@ export const PLACES = {
   fridge: { x: 920, y: 150, w: 150, h: 110 },
   toybox: { x: 1480, y: 150, w: 150, h: 110 },
   cots: { x: 1020, y: 1330, w: 380, h: 150 },
-  table: { x: 1400, y: 1110, w: 190, h: 110 },
+  table: { x: 950, y: 1080, w: 190, h: 110 },
   bucket: { x: 1520, y: 1360, w: 100, h: 100 },
   rug: { x: 1200, y: 760, w: 460, h: 420 },
 

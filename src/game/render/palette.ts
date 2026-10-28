@@ -1,6 +1,7 @@
 /** The daycare's colours. Bright and nursery-ish, so the anomalies stand out. */
 export const PALETTE = {
   floor: 0xf6e3c5,
+  outside: 0x9fb89a,
   /** Each room gets its own floor, so you always know where you are. */
   floorMusic: 0xffe0ef,
   floorStaff: 0xdfe8d8,

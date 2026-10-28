@@ -127,6 +127,7 @@ export type TargetKind =
   | 'table'
   | 'bucket'
   | 'mess'
+  | 'lostteddy'
   | 'instruments'
   | 'sums'
   | 'kettle'
@@ -184,6 +185,8 @@ export interface GameSnapshot {
   lunchtime: boolean;
   /** Children who have arrived but are not on the register yet. */
   toTickIn: number;
+  /** Whatever the monster with the microphone last said. */
+  announcement: string | null;
   /** Wrappers still on the floor. */
   messCount: number;
   /** True while you are holding the mop rather than an item. */
@@ -201,6 +204,7 @@ export interface GameSnapshot {
     /** What it is asking for, already turned into words and a picture. */
     wants: { emoji: string; name: string } | null;
     hasDrawing: boolean;
+    searching: boolean;
     tickedIn: boolean;
     asleep: boolean;
     wantsWaking: boolean;
