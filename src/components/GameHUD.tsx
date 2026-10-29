@@ -45,6 +45,7 @@ const ADMIN_BUTTONS: Array<[string, string]> = [
 
 /** What this one is up to, in a few words. */
 function rosterLine(baby: GameSnapshot['babies'][number]): string {
+  if (baby.flat) return 'flat on the floor — mop it up 🧹';
   if (baby.eruption === 'ritual') return 'DOING THE RITUAL';
   if (baby.eruption === 'hunting') return 'HUNTING — give it a sock';
   if (baby.eruption === 'angry') return 'LOOSE — give it a sock';

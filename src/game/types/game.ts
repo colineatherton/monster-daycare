@@ -241,6 +241,8 @@ export interface GameSnapshot {
     wantsWaking: boolean;
     happiness: number;
     carried: boolean;
+    /** Flat on the floor after the admin's anomaly caught it. */
+    flat: boolean;
     holdingHands: boolean;
     isAnomaly: boolean;
     eruption: EruptionState;

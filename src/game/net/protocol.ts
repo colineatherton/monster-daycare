@@ -97,6 +97,8 @@ export interface BabyFrame {
   urgent: boolean;
   /** How hard the dread glow underneath is pulsing, 0 to 1. */
   glow: number;
+  /** Flat on the floor after the admin's anomaly caught it. */
+  flat: boolean;
 }
 
 export interface ParentFrame {

@@ -401,6 +401,13 @@ interface BabyEntity extends Baby {
   ritualForm: THREE.Group | null;
   /** Which room it is wandering about in. */
   room: RoomId;
+  /**
+   * Flat on the floor, because the thing the admin turned into caught it.
+   * Counts down to getting back up. An anomaly never gets that far: being
+   * eaten is the end of one, so it leaves a mess and nothing else.
+   */
+  flatMsLeft: number;
+  flatModel: THREE.Group | null;
 }
 
 /** A parent in the home-time queue. */
@@ -927,6 +934,8 @@ export class DaycareWorld {
       prop: null,
       ritualForm: null,
       room,
+      flatMsLeft: 0,
+      flatModel: null,
     };
 
     this.nextBabyId += 1;
@@ -1005,8 +1014,15 @@ export class DaycareWorld {
 
     const pickable: THREE.Object3D[] = [];
     for (const baby of this.babies) {
-      baby.model.body.traverse((child) => {
-        if ((child as THREE.Mesh).isMesh) pickable.push(child);
+      // The body, or the splat that has replaced it. The splat hangs off the
+      // root rather than the body, so collecting only the body made a child on
+      // the floor impossible to click — and impossible to mop up.
+      const part = baby.flatModel ?? baby.model.body;
+      part.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          child.userData.babyId = baby.id;
+          pickable.push(child);
+        }
       });
     }
     for (const parent of this.queue) {
@@ -1166,6 +1182,44 @@ export class DaycareWorld {
     }
   }
 
+  /** A child flat on the floor, or back up again. */
+  private setBabyFlattened(baby: BabyEntity, flat: boolean): void {
+    const already = baby.flatModel !== null;
+    if (already === flat) return;
+
+    if (flat) {
+      baby.model.body.visible = false;
+      baby.model.shadow.visible = false;
+      if (baby.bubble) baby.bubble.visible = false;
+      baby.flatModel = buildFlattened();
+      baby.flatModel.scale.setScalar(0.7);
+      baby.model.root.add(baby.flatModel);
+    } else if (baby.flatModel) {
+      baby.model.root.remove(baby.flatModel);
+      disposeSubtree(baby.flatModel);
+      baby.flatModel = null;
+      baby.model.body.visible = true;
+      baby.model.shadow.visible = true;
+      if (baby.bubble) baby.bubble.visible = true;
+    }
+  }
+
+  /**
+   * Leave a mess where something was. Used when an anomaly is eaten: it does
+   * not get up again, so all that is left is the floor to clean.
+   */
+  private dropMessAt(x: number, y: number): void {
+    const id = `mess-${this.nextMessId}`;
+    this.nextMessId += 1;
+    const group = buildMess(this.nextMessId);
+    group.position.set(kx(x), 0, kz(y));
+    group.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) child.userData.target = { kind: 'mess', id };
+    });
+    this.scene.add(group);
+    this.messes.push({ id, x, y, group });
+  }
+
   /** Eaten, or back on your feet. */
   private setFlattened(who: Staff, flat: boolean): void {
     const already = who.flatModel !== null;
@@ -1207,8 +1261,21 @@ export class DaycareWorld {
       }
     }
 
+    // Children get back up too — unless they were never really children. An
+    // anomaly that gets eaten does not come back: it leaves a mess and that is
+    // the last of it.
+    for (const baby of this.babies.slice()) {
+      if (!baby.flatMsLeft) continue;
+      baby.flatMsLeft = Math.max(0, baby.flatMsLeft - ms);
+      if (baby.flatMsLeft === 0) {
+        this.setBabyFlattened(baby, false);
+        this.me.hint = `${baby.name} got back up.`;
+      }
+    }
+
     for (const monster of this.staff) {
       if (!monster.monster) continue;
+
       for (const prey of this.staff) {
         if (prey === monster || prey.flatMsLeft > 0) continue;
         if (Math.hypot(prey.x - monster.x, prey.y - monster.y) > EATING.reach) continue;
@@ -1219,6 +1286,35 @@ export class DaycareWorld {
         prey.pending = null;
         monster.hint = `You ate ${prey.name}.`;
         music.alarm();
+      }
+
+      for (const baby of this.babies.slice()) {
+        if (baby.flatMsLeft > 0 || baby.carried) continue;
+        if (Math.hypot(baby.x - monster.x, baby.y - monster.y) > EATING.reach) continue;
+
+        if (baby.species.anomaly === 'none') {
+          baby.flatMsLeft = EATING.flatMs;
+          this.setBabyFlattened(baby, true);
+          baby.eruption = 'none';
+          baby.path = [];
+          monster.hint = `You ate ${baby.name}. It will get up again.`;
+          music.alarm();
+        } else {
+          // One of theirs. It does not get up, and its parent will still come.
+          this.eaten.push({ id: baby.id, name: baby.name, species: baby.species });
+          this.dropMessAt(baby.x, baby.y);
+          // The broken door stands open only while something is still loose.
+          this.setAnomalyDoorBroken(
+            this.babies.some(
+              (other) =>
+                other !== baby && (other.eruption === 'hunting' || other.eruption === 'angry'),
+            ),
+          );
+          this.removeBaby(baby);
+          this.babies = this.babies.filter((other) => other !== baby);
+          monster.hint = `You ate ${baby.name}. That one is not coming back.`;
+          music.dread();
+        }
       }
     }
   }
@@ -1279,6 +1375,22 @@ export class DaycareWorld {
     if (target.kind === 'baby') {
       const baby = this.babyById(target.id);
       if (!baby) return null;
+
+      // Flat on the floor. Nothing else is worth offering until it is up.
+      if (baby.flatMsLeft > 0) {
+        const left = Math.ceil(baby.flatMsLeft / 1000);
+        return {
+          title: baby.name,
+          subtitle: `Flat on the floor. Up in ${left}s on its own.`,
+          actions: [
+            {
+              id: `revivebaby:${baby.id}`,
+              label: '🧹  Mop it up',
+              disabledBecause: who.holdingMop ? undefined : 'fetch the mop from the bucket',
+            },
+          ],
+        };
+      }
 
       // Once it has gone off there is exactly one thing worth doing, and it is
       // not cuddling it.
@@ -1820,6 +1932,21 @@ export class DaycareWorld {
       return;
     }
 
+    if (actionId.startsWith('revivebaby:')) {
+      const them = this.babyById(actionId.slice(11));
+      if (!them || them.flatMsLeft <= 0) return;
+      if (!who.holdingMop) {
+        who.hint = 'You need the mop from the bucket first.';
+        return;
+      }
+      them.flatMsLeft = 0;
+      this.setBabyFlattened(them, false);
+      who.score.tidied += 1;
+      who.hint = `${them.name} is back on its feet.`;
+      music.coin();
+      return;
+    }
+
     if (actionId.startsWith('revive:')) {
       const them = this.staff[Number(actionId.slice(7))];
       if (!them || them.flatMsLeft <= 0) return;
@@ -2064,7 +2191,9 @@ export class DaycareWorld {
   private admin(what: string): void {
     if (this.mode !== 'nightcare') return;
 
-    const ordinary = SPECIES.filter((s) => s.anomaly === 'none');
+    // The everyday ones only: Pip and Bob turn up when the story says so, and
+    // spawning a second Pip left two children with the same name.
+    const ordinary = EVERYDAY_SPECIES;
     const shadows = SPECIES.filter((s) => s.anomaly === 'shadow');
     const rituals = SPECIES.filter((s) => s.anomaly === 'ritual');
 
@@ -2345,6 +2474,7 @@ export class DaycareWorld {
       bubble: baby.bubbleFor.split('|')[0] ?? '',
       urgent: baby.bubbleFor.endsWith('true'),
       glow: (baby.glow.material as THREE.MeshBasicMaterial).opacity,
+      flat: baby.flatMsLeft > 0,
     }));
 
     return {
@@ -2440,6 +2570,7 @@ export class DaycareWorld {
       } else {
         pushTrail(baby.net, incoming.x, incoming.y, incoming.facing);
       }
+      this.setBabyFlattened(baby, incoming.flat);
       baby.asleep = incoming.asleep;
       baby.carried = incoming.carried;
       baby.bedIndex = incoming.bed;
@@ -2711,7 +2842,11 @@ export class DaycareWorld {
     const announcer = this.babyById(this.announcerId ?? undefined);
     if (!announcer || announcer.eruption !== 'none') {
       const candidate = this.babies.find(
-        (baby) => baby.eruption === 'none' && !baby.asleep && baby.species.anomaly === 'none',
+        (baby) =>
+          baby.eruption === 'none' &&
+          !baby.asleep &&
+          !baby.flatMsLeft &&
+          baby.species.anomaly === 'none',
       );
       if (!candidate) return;
       this.announcerId = candidate.id;
@@ -2780,7 +2915,12 @@ export class DaycareWorld {
     }
 
     const ordinary = this.babies.filter(
-      (baby) => baby !== announcer && baby.need === null && !baby.asleep && baby.eruption === 'none',
+      (baby) =>
+        baby !== announcer &&
+        baby.need === null &&
+        !baby.asleep &&
+        !baby.flatMsLeft &&
+        baby.eruption === 'none',
     );
     const who = ordinary[Math.floor(Math.random() * ordinary.length)];
     if (who) {
@@ -3502,6 +3642,10 @@ export class DaycareWorld {
   private stepBabies(ms: number, dt: number): void {
     // A copy, because eating removes a baby from the list mid-loop.
     for (const baby of this.babies.slice()) {
+      // Flat on the floor. No wandering, no needs, no fuse burning down —
+      // whatever it was about to do is on hold until it gets up.
+      if (baby.flatMsLeft > 0) continue;
+
       // The ritual: hanging in the air, waiting for a clean nappy.
       if (baby.eruption === 'ritual') {
         baby.eruptionMsLeft -= ms;
@@ -3729,6 +3873,9 @@ export class DaycareWorld {
         if (a.lunchSlot !== null || b.lunchSlot !== null) continue;
         // A hunter is supposed to close in, so it ignores personal space.
         if (a.eruption !== 'none' || b.eruption !== 'none') continue;
+        // And one flat on the floor stays exactly where it was eaten — being
+        // shuffled about by the others made it hard to mop up.
+        if (a.flatMsLeft > 0 || b.flatMsLeft > 0) continue;
 
         let dx = b.x - a.x;
         let dy = b.y - a.y;
@@ -3757,7 +3904,7 @@ export class DaycareWorld {
     this.lunchMsLeft = LUNCH.windowMs;
     let slot = 0;
     for (const baby of this.babies) {
-      if (baby.asleep || baby.eruption !== 'none') continue;
+      if (baby.asleep || baby.flatMsLeft > 0 || baby.eruption !== 'none') continue;
       baby.lunchSlot = slot;
       slot += 1;
       // Lunch does not take a child out of your arms. It used to, which meant
@@ -3966,7 +4113,12 @@ export class DaycareWorld {
       baby.model.limbs[2].rotation.x = swing;
       baby.model.limbs[3].rotation.x = -swing;
 
-      if (baby.asleep) {
+      if (baby.flatModel) {
+        // Nothing to pose: the body is hidden and the splat is on the floor.
+        baby.model.root.position.y = 0;
+        baby.model.root.rotation.y = 0;
+        baby.model.shadow.visible = false;
+      } else if (baby.asleep) {
         baby.model.root.position.y = 0.36;
         baby.model.body.rotation.x = -Math.PI / 2;
         baby.model.shadow.visible = false;
@@ -4064,7 +4216,12 @@ export class DaycareWorld {
       baby.model.limbs[2].rotation.x = swing;
       baby.model.limbs[3].rotation.x = -swing;
 
-      if (baby.asleep) {
+      if (baby.flatModel) {
+        // Nothing to pose: the body is hidden and the splat is on the floor.
+        baby.model.root.position.y = 0;
+        baby.model.root.rotation.y = 0;
+        baby.model.shadow.visible = false;
+      } else if (baby.asleep) {
         // Flat on its back on the mattress, breathing.
         baby.model.root.position.y = 0.36;
         baby.model.root.rotation.y = 0;
@@ -4096,7 +4253,8 @@ export class DaycareWorld {
       // The thought bubble, rebuilt only when what it wants changes. It shows
       // the exact thing asked for, not the category.
       let wanted = '';
-      if (baby.eruption === 'ritual') wanted = '🌀';
+      if (baby.flatMsLeft > 0) wanted = '';
+      else if (baby.eruption === 'ritual') wanted = '🌀';
       else if (baby.eruption !== 'none') wanted = '🧦';
       else if (baby.searching) wanted = '🧸';
       else if (baby.asleep) wanted = baby.wantsWaking ? '🍼' : '💤';
@@ -4282,6 +4440,7 @@ export class DaycareWorld {
           wantsWaking: baby.wantsWaking,
           happiness: Math.round(baby.happiness),
           carried: baby.carried,
+          flat: baby.flatMsLeft > 0,
           holdingHands: baby.holdingHands,
           isAnomaly: baby.species.anomaly !== 'none',
           eruption: baby.eruption,
