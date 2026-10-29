@@ -130,6 +130,9 @@ export type TargetKind =
   | 'bed'
   | 'table'
   | 'bucket'
+  | 'bin'
+  /** Another grown-up, flat on the floor after being eaten. */
+  | 'player'
   | 'mess'
   | 'lostteddy'
   | 'instruments'
@@ -175,6 +178,8 @@ export interface Upgrades {
 export interface StaffScore {
   seat: number;
   name: string;
+  /** Which avatar they picked, so the table can show the face. */
+  skin: string;
   /** Things fetched and handed over, hands held, cuddles that were wanted. */
   looked: number;
   /** Children ticked in on the register. */
@@ -183,6 +188,8 @@ export interface StaffScore {
   tidied: number;
   /** Socks and nappies: anomalies brought back under control. */
   brave: number;
+  /** Anomalies seen to before they ever erupted. Disasters that never happened. */
+  prevented: number;
   /** Children handed to the right parent at home time. */
   home: number;
   /** What it all adds up to. */

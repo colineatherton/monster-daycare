@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { ball, box, cyl, mat, torus } from './three-helpers.ts';
 import { kx, ku, kz } from './three-helpers.ts';
 import { PALETTE } from './palette.ts';
+import { textLabel } from './labels.ts';
 import { BEDS, DOORWAYS, PLACES, ROOM, ROOMS } from '../config.ts';
 import type { RoomId } from '../config.ts';
 
@@ -354,6 +355,26 @@ export function buildRoom(): RoomModel {
   bucket.add(pail);
   clickable.push(pail);
 
+  /* -------------------------------------------------------------- the bin */
+
+  const bin = furnitureBase(PLACES.bin);
+  const binBody = cyl(0.3, 0.26, 0.62, PALETTE.bin);
+  binBody.position.y = 0.31;
+  binBody.castShadow = true;
+  binBody.userData.target = { kind: 'bin' };
+  bin.add(binBody);
+  clickable.push(binBody);
+
+  const binRim = cyl(0.33, 0.33, 0.06, PALETTE.binRim);
+  binRim.position.y = 0.63;
+  bin.add(binRim);
+  // A lid propped half open, so it reads as a bin and not a barrel.
+  const binLid = cyl(0.31, 0.31, 0.05, PALETTE.binRim);
+  binLid.position.set(0.12, 0.74, -0.16);
+  binLid.rotation.x = -0.9;
+  bin.add(binLid);
+  root.add(bin);
+
   const water = new THREE.Mesh(new THREE.CircleGeometry(0.25, 20), mat(0x58b7d6));
   water.rotation.x = -Math.PI / 2;
   water.position.y = 0.42;
@@ -675,12 +696,7 @@ export function hangDrawing(index: number, colour: number, subject?: 'teddy'): T
       eye.position.set(side * 0.022, 0.08, 0.037);
       group.add(eye);
     }
-    const perRow = 7;
-    group.position.set(
-      kx(ROOMS.play.x0 + 90 + (index % perRow) * 100),
-      1.45 - Math.floor(index / perRow) * 0.45,
-      kz(ROOMS.play.y0) - 0.02,
-    );
+    placeOnWall(group, index);
     return group;
   }
 
@@ -694,16 +710,37 @@ export function hangDrawing(index: number, colour: number, subject?: 'teddy'): T
     group.add(scribble);
   }
 
-  // Along the back wall of the playroom, wrapping onto a second row.
+  placeOnWall(group, index);
+  return group;
+}
+
+/**
+ * A name card at the head of somebody's run of pictures, so you can see at a
+ * glance which of you was given what. One per person, only when there is more
+ * than one of you.
+ */
+export function wallPlaque(index: number, name: string, colour: number): THREE.Group {
+  const group = new THREE.Group();
+
+  const card = box(0.42, 0.34, 0.04, colour);
+  group.add(card);
+  const label = textLabel(name, '#1c1f26');
+  label.scale.set(0.8, 0.2, 1);
+  label.position.set(0, 0, 0.06);
+  group.add(label);
+
+  placeOnWall(group, index);
+  return group;
+}
+
+/** Along the back wall of the playroom, wrapping onto the row below. */
+function placeOnWall(group: THREE.Group, index: number): void {
   const perRow = 7;
-  const column = index % perRow;
-  const row = Math.floor(index / perRow);
   group.position.set(
-    kx(ROOMS.play.x0 + 90 + column * 100),
-    1.45 - row * 0.45,
+    kx(ROOMS.play.x0 + 90 + (index % perRow) * 100),
+    1.45 - Math.floor(index / perRow) * 0.45,
     kz(ROOMS.play.y0) - 0.02,
   );
-  return group;
 }
 
 /**

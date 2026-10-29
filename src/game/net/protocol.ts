@@ -73,6 +73,10 @@ export interface StaffFrame {
   /** What is in their hands, so it can be drawn there. */
   item: string | null;
   mop: boolean;
+  /** Night shift: this one has turned, and is eating the others. */
+  monster: boolean;
+  /** Eaten. Lying flat where it happened. */
+  flat: boolean;
 }
 
 /** One child, as everybody else sees them. */
@@ -113,8 +117,12 @@ export interface FrameMessage {
   messes: Array<{ id: string; x: number; y: number }>;
   teddy: { x: number; y: number } | null;
   parents: ParentFrame[];
-  /** How many drawings are on the wall, so a guest can hang the same ones. */
-  wall: number;
+  /**
+   * The picture wall, as "seat:colour" pairs — "0:ff5f9e,1:7fd4a3". Sending the
+   * wall itself rather than a count is what lets a guest group it by person,
+   * and lets somebody arriving halfway through see what is already up.
+   */
+  wall: string;
   doorBroken: boolean;
   /** How dark the building has gone, 0 to 1. */
   dread: number;

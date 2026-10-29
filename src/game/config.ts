@@ -35,7 +35,7 @@ export type RoomId = keyof typeof ROOMS;
 export const DOORWAYS = {
   music: { x: 800, y0: 240, y1: 400 },
   staff: { x: 800, y0: 760, y1: 910 },
-  shop: { x: 800, y0: 1210, y1: 1360 },
+  shop: { x: 800, y0: 1100, y1: 1250 },
   maths: { x: 1600, y0: 300, y1: 480 },
   anomaly: { x: 1600, y0: 1020, y1: 1200 },
 } as const;
@@ -203,10 +203,12 @@ export const DAY = {
 export const PLACES = {
   frontDoor: { x: 1200, y: 60, w: 150, h: 40 },
   fridge: { x: 920, y: 150, w: 150, h: 110 },
-  toybox: { x: 1480, y: 150, w: 150, h: 110 },
+  toybox: { x: 1400, y: 150, w: 150, h: 110 },
   cots: { x: 1020, y: 1330, w: 380, h: 150 },
-  table: { x: 950, y: 1080, w: 190, h: 110 },
+  table: { x: 1060, y: 1080, w: 190, h: 110 },
   bucket: { x: 1520, y: 1360, w: 100, h: 100 },
+  /** For putting back whatever you fetched and did not need. */
+  bin: { x: 1330, y: 1380, w: 130, h: 100 },
   rug: { x: 1200, y: 760, w: 460, h: 420 },
 
   instruments: { x: 300, y: 260, w: 230, h: 130 },

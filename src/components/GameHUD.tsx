@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { commands, subscribe } from '../game/bus.ts';
 import type { GameSnapshot } from '../game/types/game.ts';
+import { SKINS } from '../game/render/player.ts';
 import './GameHUD.css';
 
 const NEED_EMOJI: Record<string, string> = {
@@ -35,6 +36,8 @@ const ADMIN_BUTTONS: Array<[string, string]> = [
   ['clean', '✨ Clean it all up'],
   ['happy', '😇 Everyone happy'],
   ['calm', '🧦 Calm everything'],
+  ['noanomalies', '🚫 Remove all anomalies'],
+  ['monster', '👹 Turn into an anomaly'],
   ['endday', '🏠 Home time now'],
   ['finish', '🏁 End the shift'],
   ['skipday', '⏭️ Next shift'],
@@ -329,8 +332,9 @@ export default function GameHUD({ onQuit, touch }: { onQuit: () => void; touch: 
                     <th title="fetched, fed, cuddled, tucked in">Looked after</th>
                     <th title="ticked in on the register">Register</th>
                     <th title="drawings taken and mess mopped">Tidied</th>
-                    <th title="socks given and nappies changed">Brave</th>
-                    <th title="handed to the right parent">Home</th>
+                    <th title="an anomaly seen to before it ever erupted">Disasters stopped</th>
+                    <th title="socks given and nappies changed">Calmed</th>
+                    <th title="handed to the right parent">Sent home</th>
                     <th>Total</th>
                   </tr>
                 </thead>
@@ -342,10 +346,16 @@ export default function GameHUD({ onQuit, touch }: { onQuit: () => void; touch: 
                         score.name === snapshot.dayReport?.employeeOfTheShift ? 'is-best' : ''
                       }
                     >
-                      <td>{score.name}</td>
+                      <td className="scores__who">
+                        <span className="scores__face" aria-hidden="true">
+                          {SKINS.find((skin) => skin.id === score.skin)?.face ?? '🧍'}
+                        </span>
+                        {score.name}
+                      </td>
                       <td>{score.looked}</td>
                       <td>{score.ticked}</td>
                       <td>{score.tidied}</td>
+                      <td>{score.prevented}</td>
                       <td>{score.brave}</td>
                       <td>{score.home}</td>
                       <td>
@@ -355,6 +365,20 @@ export default function GameHUD({ onQuit, touch }: { onQuit: () => void; touch: 
                   ))}
                 </tbody>
               </table>
+            )}
+
+            {snapshot.dayReport.scores.length > 1 && (
+              <p className="scores__key">
+                <strong>Looked after</strong> — fed, cuddled, played with, tucked into bed.{' '}
+                <strong>Register</strong> — names ticked off as they arrived.{' '}
+                <strong>Tidied</strong> — drawings taken and mess mopped.{' '}
+                <strong>Disasters stopped</strong> — you got to an anomaly while its fuse was
+                still burning, so it never broke the door down at all.{' '}
+                <strong>Calmed</strong> — one got out anyway and you brought it back: a sock for a
+                loose one, a nappy changed mid-ritual. Worth the most, because not everybody will
+                go near them.{' '}
+                <strong>Sent home</strong> — handed to the right parent.
+              </p>
             )}
 
             <p>

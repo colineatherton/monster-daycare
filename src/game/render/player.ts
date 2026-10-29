@@ -380,3 +380,76 @@ export function buildParent(kind: 'shaggy' | 'blob', colour: number): THREE.Grou
 
   return group;
 }
+
+/**
+ * What a grown-up turns into on the night shift, when the admin panel lets you
+ * stop pretending. Deliberately the same height as a person so you can still
+ * tell who is who, and deliberately horrible: a hunched dark body, far too many
+ * teeth, and eyes that give off their own light.
+ */
+export function buildMonsterForm(): THREE.Group {
+  const group = new THREE.Group();
+
+  const torso = ball(0.34, 0x2a1f33);
+  torso.scale.set(1, 1.35, 0.9);
+  torso.position.y = 0.78;
+  group.add(torso);
+
+  const head = ball(0.26, 0x33253d);
+  head.position.y = 1.26;
+  group.add(head);
+
+  // Eyes that are their own light source, so it reads in the dark.
+  for (const side of [-1, 1]) {
+    const eye = ball(0.062, 0xffe25c);
+    eye.material = new THREE.MeshBasicMaterial({ color: 0xffe25c });
+    eye.position.set(side * 0.1, 1.31, 0.21);
+    group.add(eye);
+  }
+
+  // Teeth. Wren's one rule about anomalies is that the tell is visible from
+  // across the room, so there are a lot of them and they point outwards.
+  for (let i = 0; i < 9; i += 1) {
+    const tooth = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.12, 4), mat(0xfff6e0));
+    const angle = (i / 9) * Math.PI - Math.PI / 2;
+    tooth.position.set(Math.sin(angle) * 0.19, 1.17, Math.cos(angle) * 0.17);
+    tooth.rotation.x = Math.PI;
+    tooth.rotation.z = Math.sin(angle) * 0.4;
+    group.add(tooth);
+  }
+
+  // Arms, too long, hanging.
+  for (const side of [-1, 1]) {
+    const arm = cyl(0.062, 0.05, 0.62, 0x2a1f33);
+    arm.position.set(side * 0.34, 0.76, 0);
+    arm.rotation.z = side * 0.22;
+    group.add(arm);
+    const claw = ball(0.08, 0x1d1526);
+    claw.position.set(side * 0.42, 0.46, 0);
+    group.add(claw);
+  }
+
+  group.traverse((child) => {
+    if ((child as THREE.Mesh).isMesh) child.castShadow = true;
+  });
+  return group;
+}
+
+/** The puddle somebody leaves behind once they have been eaten. */
+export function buildFlattened(): THREE.Group {
+  const group = new THREE.Group();
+
+  const splat = new THREE.Mesh(new THREE.CircleGeometry(0.42, 22), mat(0x7a4f8f));
+  splat.rotation.x = -Math.PI / 2;
+  splat.position.y = 0.015;
+  group.add(splat);
+
+  for (let i = 0; i < 5; i += 1) {
+    const blob = new THREE.Mesh(new THREE.CircleGeometry(0.07 + (i % 3) * 0.03, 12), mat(0x8c5ea2));
+    const angle = (i / 5) * Math.PI * 2;
+    blob.rotation.x = -Math.PI / 2;
+    blob.position.set(Math.cos(angle) * 0.46, 0.018, Math.sin(angle) * 0.46);
+    group.add(blob);
+  }
+  return group;
+}

@@ -32,6 +32,10 @@ export const PALETTE = {
   tableLeg: 0xd9a55e,
   stool: 0xff9db0,
   bucket: 0x7ec8e3,
+  bin: 0x6f7f96,
+  plaque: 0xffd9a0,
+  plaquePip: 0xa8d8c0,
+  binRim: 0x93a6c0,
 
   musicShelf: 0xffb3d1,
   mathsDesk: 0x9ec5ff,

@@ -24,10 +24,18 @@ import {
   buildMicrophone,
   buildRoom,
   hangDrawing,
+  wallPlaque,
   partitionWalls,
 } from './render/room.ts';
 import { buildBaby, buildRitualForm, type BabyModel } from './render/monsters.ts';
-import { buildParent, buildPlayer, SKINS, type SkinId } from './render/player.ts';
+import {
+  buildFlattened,
+  buildMonsterForm,
+  buildParent,
+  buildPlayer,
+  SKINS,
+  type SkinId,
+} from './render/player.ts';
 import { buildItem, buildDreadGlow } from './render/items.ts';
 import { thoughtBubble, textLabel } from './render/labels.ts';
 import { ITEMS, itemById, itemsOfKind } from './data/items.ts';
@@ -104,8 +112,52 @@ const NEED_ITEM_KIND: Record<NeedKind, Item['kind'] | null> = {
   mathsy: 'maths',
 };
 
+/**
+ * How long a guest waits in silence before deciding the host has gone.
+ *
+ * Generous on purpose. The first version gave up after four seconds and
+ * announced the host had left while she was still sitting there — a throttled
+ * background tab or one long frame building the end-of-shift report is enough
+ * to go that quiet. Now the connection dropping is what really decides it, and
+ * silence alone has to last twice as long before we believe it.
+ */
+const HOST_SILENCE_MS = 6000;
+
+/** The night shift's one real rule: how close is close enough to eat. */
+const EATING = {
+  /** Room units between the two of you. Less than a spawn gap apart. */
+  reach: 72,
+  /** How long you lie there before getting up by yourself. Wren picked this. */
+  flatMs: 15_000,
+} as const;
+
 /** Where the camera sits relative to whatever it is looking at. */
 const CAMERA_OFFSET = new THREE.Vector3(0, 9.0, 8.4);
+
+/**
+ * One picture on the playroom wall. The seat matters because the wall is sorted
+ * by it: in a shared building you can see at a glance which of you was handed
+ * what. Seat -1 is Pip's, which nobody was given.
+ */
+interface WallPicture {
+  colour: number;
+  seat: number;
+  teddy?: boolean;
+}
+
+function encodeWall(items: WallPicture[]): string {
+  return items
+    .map((i) => `${i.seat}:${i.colour.toString(16)}${i.teddy ? ':t' : ''}`)
+    .join(',');
+}
+
+function decodeWall(packed: string): WallPicture[] {
+  if (!packed) return [];
+  return packed.split(',').map((part) => {
+    const [seat, colour, teddy] = part.split(':');
+    return { seat: Number(seat), colour: Number.parseInt(colour, 16), teddy: teddy === 't' };
+  });
+}
 
 /** Furniture you bump into. Room units. */
 const FURNITURE = [
@@ -114,6 +166,7 @@ const FURNITURE = [
   PLACES.cots,
   PLACES.table,
   PLACES.bucket,
+  PLACES.bin,
   PLACES.instruments,
   PLACES.sums,
   PLACES.kettle,
@@ -199,7 +252,11 @@ function pickFrom(hits: THREE.Intersection[]): THREE.Intersection | undefined {
       target?: ClickTarget;
     };
     if (data.babyId || data.parentId) return true;
-    return data.target?.kind === 'mess' || data.target?.kind === 'lostteddy';
+    return (
+      data.target?.kind === 'mess' ||
+      data.target?.kind === 'lostteddy' ||
+      data.target?.kind === 'player'
+    );
   });
   return small ?? nearest;
 }
@@ -234,6 +291,22 @@ function randomSpotIn(id: RoomId): { x: number; y: number } {
 const WANDERABLE: RoomId[] = ['play', 'play', 'play', 'music', 'maths', 'staff', 'shop'];
 
 /** The gap in the wall you have to go through to reach a room. */
+/** How wide the gap is, so a route can aim at a clear part of it. */
+function doorwaySpan(room: RoomId): { y0: number; y1: number } | null {
+  if (room === 'play') return null;
+  const gap = DOORWAYS[room];
+  return { y0: gap.y0, y1: gap.y1 };
+}
+
+/** Is this spot inside something you would bump into? */
+function insideFurniture(x: number, y: number): boolean {
+  return FURNITURE.some(
+    (o) =>
+      Math.abs(x - o.x) < o.w / 2 + PLAYER.bodyWidth &&
+      Math.abs(y - o.y) < o.h / 2 + PLAYER.bodyHeight,
+  );
+}
+
 function doorwayInto(room: RoomId): { x: number; y: number } | null {
   switch (room) {
     case 'music':
@@ -287,7 +360,24 @@ interface Staff {
   /** What they were last told, shown on their own screen. */
   hint: string;
   /** What they have done this shift, for the award at the end of it. */
-  score: { looked: number; ticked: number; tidied: number; brave: number; home: number };
+  score: {
+    looked: number;
+    ticked: number;
+    tidied: number;
+    brave: number;
+    /** Anomalies seen to before they erupted. Disasters that never happened. */
+    prevented: number;
+    home: number;
+  };
+  /**
+   * Night shift only: this one has stopped being a member of staff. Walking
+   * into anybody else now eats them.
+   */
+  monster: boolean;
+  monsterModel: THREE.Group | null;
+  /** Eaten. Flat on the floor, can't move, until this runs out or somebody mops. */
+  flatMsLeft: number;
+  flatModel: THREE.Group | null;
 }
 
 interface BabyEntity extends Baby {
@@ -331,6 +421,9 @@ export class DaycareWorld {
   private readonly raycaster = new THREE.Raycaster();
   private lastFrameAt = performance.now();
 
+  /** How many frames have gone wrong. Kept so the log does not fill up. */
+  private frameFaults = 0;
+
   private readonly room = buildRoom();
   private readonly walls = partitionWalls();
   private readonly ring = buildHighlightRing();
@@ -356,7 +449,13 @@ export class DaycareWorld {
   /** Drawings you have been given. Kept for the pure joy of a rising number. */
   private drawings = 0;
   /** Drawings collected today, waiting to go up on the wall at home time. */
-  private pendingDrawings: number[] = [];
+  private pendingDrawings: WallPicture[] = [];
+
+  /** What is actually hanging up, in the order it hangs. */
+  private wallItems: WallPicture[] = [];
+
+  /** The wall as last drawn, so a guest only rebuilds it when it changes. */
+  private wallKey = '';
   /** How many are already hanging up. */
   private onTheWall = 0;
   /** What you have bought at the register. */
@@ -606,7 +705,11 @@ export class DaycareWorld {
       pending: null,
       menuTarget: null,
       hint: 'Click a monster, or click a cupboard to fetch something.',
-      score: { looked: 0, ticked: 0, tidied: 0, brave: 0, home: 0 },
+      score: { looked: 0, ticked: 0, tidied: 0, brave: 0, prevented: 0, home: 0 },
+      monster: false,
+      monsterModel: null,
+      flatMsLeft: 0,
+      flatModel: null,
     };
     this.staff[seat] = member;
     return member;
@@ -702,6 +805,8 @@ export class DaycareWorld {
     this.room.sockDrawer.visible = false;
     this.room.pictureWall.clear();
     this.onTheWall = 0;
+    this.wallItems = [];
+    this.wallKey = '';
     this.gameOver = null;
     this.dayReport = null;
     this.me.holding = null;
@@ -921,6 +1026,17 @@ export class DaycareWorld {
     }
     // Only things you can actually see. The raycaster does not check this for
     // us, which is how the sock drawer was clickable before it was bought.
+    // Somebody flat on the floor is the only time another grown-up is worth
+    // clicking, so they only go in the list while they are down.
+    for (const person of this.staff) {
+      if (!person.flatModel) continue;
+      person.flatModel.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          child.userData.target = { kind: 'player', id: String(person.seat) };
+          pickable.push(child);
+        }
+      });
+    }
     pickable.push(...this.room.clickable.filter(onScreen));
 
     const hit = pickFrom(this.raycaster.intersectObjects(pickable, false));
@@ -977,6 +1093,8 @@ export class DaycareWorld {
         return PLACES.table;
       case 'bucket':
         return PLACES.bucket;
+      case 'bin':
+        return PLACES.bin;
       case 'mess':
         return PLACES.bucket;
       case 'register':
@@ -1000,6 +1118,10 @@ export class DaycareWorld {
       const baby = this.babyById(target.id);
       return baby ? { x: baby.x, y: baby.y } : { x: this.me.x, y: this.me.y };
     }
+    if (target.kind === 'player') {
+      const them = this.staff[Number(target.id)];
+      return them ? { x: them.x, y: them.y } : { x: this.me.x, y: this.me.y };
+    }
     if (target.kind === 'parent') {
       const parent = this.parentById(target.id);
       return parent ? { x: parent.x, y: parent.y } : { x: this.me.x, y: this.me.y };
@@ -1019,6 +1141,86 @@ export class DaycareWorld {
 
   private sleepers(): number {
     return this.babies.filter((baby) => baby.asleep).length;
+  }
+
+  /**
+   * Stop being a member of staff. The person's own model goes away and the
+   * thing underneath comes out — but they keep their seat, their name and their
+   * score, because they are still whoever was playing.
+   */
+  private setMonsterForm(who: Staff, on: boolean): void {
+    if (who.monster === on) return;
+    who.monster = on;
+    who.model.body.visible = !on;
+
+    if (on) {
+      who.holding = null;
+      this.setHeldModel(who, null);
+      this.setMop(who, false);
+      who.monsterModel = buildMonsterForm();
+      who.model.root.add(who.monsterModel);
+    } else if (who.monsterModel) {
+      who.model.root.remove(who.monsterModel);
+      disposeSubtree(who.monsterModel);
+      who.monsterModel = null;
+    }
+  }
+
+  /** Eaten, or back on your feet. */
+  private setFlattened(who: Staff, flat: boolean): void {
+    const already = who.flatModel !== null;
+    if (already === flat) return;
+
+    if (flat) {
+      who.holding = null;
+      this.setHeldModel(who, null);
+      this.setMop(who, false);
+      who.model.body.visible = false;
+      who.flatModel = buildFlattened();
+      who.model.root.add(who.flatModel);
+    } else if (who.flatModel) {
+      who.model.root.remove(who.flatModel);
+      disposeSubtree(who.flatModel);
+      who.flatModel = null;
+      who.model.body.visible = !who.monster;
+    }
+  }
+
+  /**
+   * Night shift only. Anybody who has turned eats whoever they walk into, and
+   * the person they ate goes flat where they stood. They get back up on their
+   * own after a quarter of a minute — or straight away if one of the others is
+   * brave enough to come over with the mop.
+   */
+  private stepEating(dt: number): void {
+    const ms = dt * 1000;
+
+    for (const who of this.staff) {
+      if (!who.flatMsLeft) continue;
+      who.flatMsLeft = Math.max(0, who.flatMsLeft - ms);
+      if (who.flatMsLeft === 0) {
+        this.setFlattened(who, false);
+        who.hint = 'You are back on your feet.';
+      } else {
+        const left = Math.ceil(who.flatMsLeft / 1000);
+        who.hint = `You have been eaten. Back up in ${left}s, or sooner if somebody mops you up.`;
+      }
+    }
+
+    for (const monster of this.staff) {
+      if (!monster.monster) continue;
+      for (const prey of this.staff) {
+        if (prey === monster || prey.flatMsLeft > 0) continue;
+        if (Math.hypot(prey.x - monster.x, prey.y - monster.y) > EATING.reach) continue;
+
+        prey.flatMsLeft = EATING.flatMs;
+        this.setFlattened(prey, true);
+        prey.menuTarget = null;
+        prey.pending = null;
+        monster.hint = `You ate ${prey.name}.`;
+        music.alarm();
+      }
+    }
   }
 
   /** The lowest-numbered empty bed, or null if they are all taken. */
@@ -1229,6 +1431,50 @@ export class DaycareWorld {
             },
           ],
         };
+      case 'player': {
+        const them = this.staff[Number(target.id)];
+        if (!them || them.flatMsLeft <= 0) return null;
+        const left = Math.ceil(them.flatMsLeft / 1000);
+        return {
+          title: them.name,
+          subtitle:
+            who === them
+              ? `You are the one on the floor. Up in ${left}s.`
+              : `Flat on the floor. Up in ${left}s on their own.`,
+          actions: [
+            {
+              id: `revive:${them.seat}`,
+              label: '🧹  Mop them up',
+              disabledBecause:
+                who === them
+                  ? 'you cannot mop yourself up'
+                  : who.holdingMop
+                    ? undefined
+                    : 'fetch the mop from the bucket',
+            },
+          ],
+        };
+      }
+      case 'bin':
+        return {
+          title: 'The bin',
+          subtitle: who.holding
+            ? `For ${who.holding.name} — it does not have to go back.`
+            : who.holdingMop
+              ? 'The mop goes back in its bucket, not in here.'
+              : 'For putting back whatever you fetched and did not need.',
+          actions: [
+            {
+              id: 'binit',
+              label: who.holding ? `🗑️  Bin ${who.holding.name}` : '🗑️  Bin it',
+              disabledBecause: who.holding
+                ? undefined
+                : who.holdingMop
+                  ? 'put the mop back in the bucket instead'
+                  : 'your hands are empty',
+            },
+          ],
+        };
       case 'sockdrawer':
         return {
           title: 'The sock drawer',
@@ -1404,11 +1650,16 @@ export class DaycareWorld {
 
   /** Close enough to act? */
   private withinReach(who: Staff, target: ClickTarget): boolean {
+    // Everything that moves, measured from wherever it is right now. Anything
+    // missing from this list falls through to the furniture below, where
+    // `placeFor` answers with the kettle for a target it does not know — so you
+    // stand next to the thing you tapped and nothing ever happens.
     if (
       target.kind === 'baby' ||
       target.kind === 'parent' ||
       target.kind === 'mess' ||
-      target.kind === 'lostteddy'
+      target.kind === 'lostteddy' ||
+      target.kind === 'player'
     ) {
       const spot = this.targetPosition(target);
       return Math.hypot(spot.x - who.x, spot.y - who.y) <= PLAYER.reach;
@@ -1507,6 +1758,19 @@ export class DaycareWorld {
       return;
     }
 
+    if (actionId === 'binit') {
+      if (!who.holding) {
+        who.hint = 'Your hands are empty.';
+        return;
+      }
+      const binned = who.holding.name;
+      who.holding = null;
+      this.setHeldModel(who, null);
+      who.hint = `${binned[0].toUpperCase()}${binned.slice(1)} went in the bin. Your hands are free.`;
+      music.coin();
+      return;
+    }
+
     if (actionId === 'putmop') {
       this.setMop(who, false);
       who.hint = 'Mop back in the bucket.';
@@ -1539,7 +1803,12 @@ export class DaycareWorld {
       // Being put down in a bed is what a sleepy one wanted all along.
       who.score.looked += 1;
       if (carried.need === 'sleepy') {
-        this.meetNeed(carried, carried.species.anomaly === 'none' ? 10 : 10 * ANOMALY.payMultiplier);
+        this.meetNeed(
+          carried,
+          carried.species.anomaly === 'none' ? 10 : 10 * ANOMALY.payMultiplier,
+          0,
+          who,
+        );
         carried.happiness = Math.min(100, carried.happiness + BEDS.tuckedInReward);
         who.hint = `${carried.name} is tucked up. It will want its dummy in a minute.`;
       } else {
@@ -1547,6 +1816,26 @@ export class DaycareWorld {
         carried.wantedItemId = null;
         who.hint = `${carried.name} is in bed, though it was not especially sleepy.`;
       }
+      music.coin();
+      return;
+    }
+
+    if (actionId.startsWith('revive:')) {
+      const them = this.staff[Number(actionId.slice(7))];
+      if (!them || them.flatMsLeft <= 0) return;
+      if (them === who) {
+        who.hint = 'You cannot mop yourself up. Sit tight.';
+        return;
+      }
+      if (!who.holdingMop) {
+        who.hint = 'You need the mop from the bucket first.';
+        return;
+      }
+      them.flatMsLeft = 0;
+      this.setFlattened(them, false);
+      them.hint = `${who.name} mopped you up. You are fine.`;
+      who.score.tidied += 1;
+      who.hint = `${them.name} is back on their feet.`;
       music.coin();
       return;
     }
@@ -1596,6 +1885,7 @@ export class DaycareWorld {
           baby,
           baby.species.anomaly === 'none' ? 10 : 10 * ANOMALY.payMultiplier,
           cheering,
+          who,
         );
         who.hint = `${baby.name} wanted that. Lovely.`;
         music.coin();
@@ -1659,14 +1949,14 @@ export class DaycareWorld {
         this.coins += BABIES.drawingCoins;
         who.score.tidied += 1;
         this.drawings += 1;
-        this.pendingDrawings.push(baby.species.colour);
+        this.pendingDrawings.push({ colour: baby.species.colour, seat: who.seat });
         who.hint = `${baby.name} gave you their drawing. It goes up on the wall at home time.`;
         music.coin();
         break;
       case 'cuddle':
         if (baby.need === 'sad') {
           who.score.looked += 1;
-          this.meetNeed(baby, baby.species.anomaly === 'none' ? 8 : 8 * ANOMALY.payMultiplier);
+          this.meetNeed(baby, baby.species.anomaly === 'none' ? 8 : 8 * ANOMALY.payMultiplier, 0, who);
           who.hint = `${baby.name} feels much better.`;
           music.coin();
         } else {
@@ -1804,7 +2094,9 @@ export class DaycareWorld {
         this.me.hint = 'Here. Have a teddy.';
         break;
       case 'drawing':
-        this.pendingDrawings.push(0xff5f9e, 0x7fd4a3, 0x4aa8ff);
+        for (const colour of [0xff5f9e, 0x7fd4a3, 0x4aa8ff]) {
+          this.pendingDrawings.push({ colour, seat: this.me.seat });
+        }
         this.drawings += 3;
         this.me.hint = 'Three drawings, from nobody. They go up at home time.';
         break;
@@ -1822,10 +2114,50 @@ export class DaycareWorld {
         }
         this.me.hint = 'Everybody is delighted and on the register.';
         break;
+      case 'noanomalies': {
+        const gone = this.babies.filter((baby) => baby.species.anomaly !== 'none');
+        for (const baby of gone) {
+          // Whoever was carrying it is not any more.
+          baby.carried = false;
+          this.removeBaby(baby);
+        }
+        this.babies = this.babies.filter((baby) => baby.species.anomaly === 'none');
+        // Their parents have nobody to collect, so they go too. The model
+        // version, not `removeParent` — that one ends the shift when the queue
+        // empties, and this is the middle of the afternoon.
+        for (const parent of this.queue.slice()) {
+          if (!this.babyById(parent.babyId)) this.removeParentModel(parent);
+        }
+        this.setAnomalyDoorBroken(false);
+        this.me.hint = gone.length
+          ? `${gone.length} gone. Nothing left in here that shouldn't be.`
+          : 'There were none in the building anyway.';
+        break;
+      }
       case 'calm':
         for (const baby of this.babies) if (baby.eruption !== 'none') this.calmDown(baby);
         this.me.hint = 'Everything is back in its room.';
         break;
+      case 'monster': {
+        const on = !this.me.monster;
+        this.setMonsterForm(this.me, on);
+        this.me.hint = on
+          ? this.staff.length > 1
+            ? 'Walk into the others to eat them.'
+            : 'Nobody here to eat. Open a room and try it with friends.'
+          : 'Back to normal. Everybody can get up.';
+        if (!on) {
+          // Nothing is left lying on the floor once you stop.
+          for (const person of this.staff) {
+            if (person.flatMsLeft > 0) {
+              person.flatMsLeft = 0;
+              this.setFlattened(person, false);
+            }
+          }
+        }
+        music.alarm();
+        break;
+      }
       case 'endday':
         this.dayTimeLeftMs = 1;
         this.me.hint = 'Home time, early.';
@@ -1995,6 +2327,8 @@ export class DaycareWorld {
       facing: Math.round(person.facing * 100) / 100,
       item: person.holding?.id ?? null,
       mop: person.holdingMop,
+      monster: person.monster,
+      flat: person.flatMsLeft > 0,
     }));
 
     const babies: BabyFrame[] = this.babies.map((baby) => ({
@@ -2027,7 +2361,7 @@ export class DaycareWorld {
         species: parent.species.id,
         babyName: parent.babyName,
       })),
-      wall: this.onTheWall,
+      wall: this.wallKey,
       doorBroken: this.room.anomalyDoor.rotation.z !== 0,
       dread: 1 - this.ambient.intensity / 0.78,
     };
@@ -2060,6 +2394,9 @@ export class DaycareWorld {
       } else {
         pushTrail(member.net, person.x, person.y, person.facing);
       }
+
+      this.setMonsterForm(member, person.monster);
+      this.setFlattened(member, person.flat);
 
       const wantedItem = person.item ?? (person.mop ? 'mop' : null);
       const haveItem = member.holding?.id ?? (member.holdingMop ? 'mop' : null);
@@ -2150,11 +2487,15 @@ export class DaycareWorld {
     }
 
     if (Boolean(this.lostTeddy) !== Boolean(frame.teddy)) this.setLostTeddy(Boolean(frame.teddy));
+    // Things the host bought are in the host's building, which is the one
+    // everybody is standing in.
+    this.upgrades = { ...frame.hud.upgrades };
+    this.room.sockDrawer.visible = frame.hud.upgrades.sockDrawer;
     this.setAnomalyDoorBroken(frame.doorBroken);
 
-    while (this.onTheWall < frame.wall) {
-      this.room.pictureWall.add(hangDrawing(this.onTheWall, 0xff5f9e));
-      this.onTheWall += 1;
+    if (frame.wall !== this.wallKey) {
+      this.wallItems = decodeWall(frame.wall);
+      this.rebuildWall();
     }
 
     const parentIds = new Set(frame.parents.map((parent) => parent.id));
@@ -2234,8 +2575,8 @@ export class DaycareWorld {
     // Shift 12: the picture Pip drew of the teddy you gave him turns up on
     // your wall, and you did not put it there.
     if (this.dayNumber === STORY.pipDrawsOn && this.story.pipTeddy) {
-      this.room.pictureWall.add(hangDrawing(this.onTheWall, 0xc08552, 'teddy'));
-      this.onTheWall += 1;
+      this.wallItems.push({ colour: 0xc08552, seat: -1, teddy: true });
+      this.rebuildWall();
     }
 
     // Shift 20. The front door has not opened yet.
@@ -2492,7 +2833,12 @@ export class DaycareWorld {
     baby.happiness = 100;
   }
 
-  private meetNeed(baby: BabyEntity, coins: number, extraCheer = 0): void {
+  private meetNeed(baby: BabyEntity, coins: number, extraCheer = 0, by?: Staff): void {
+    // Getting to an anomaly in time is the whole job. Its fuse was burning and
+    // now it is not, so whatever it was about to do is not going to happen.
+    if (by && baby.species.anomaly !== 'none' && baby.eruption === 'none' && baby.need !== null) {
+      by.score.prevented += 1;
+    }
     if (baby.need === 'hungry') baby.lunchSlot = null;
     baby.need = null;
     baby.wantedItemId = null;
@@ -2760,11 +3106,40 @@ export class DaycareWorld {
    * colour of whoever drew it, and stays there for the rest of the run.
    */
   private hangTodaysDrawings(): void {
-    for (const colour of this.pendingDrawings) {
-      this.room.pictureWall.add(hangDrawing(this.onTheWall, colour));
-      this.onTheWall += 1;
-    }
+    this.wallItems.push(...this.pendingDrawings);
     this.pendingDrawings = [];
+    this.rebuildWall();
+  }
+
+  /**
+   * Hang the whole wall from scratch, sorted so that each person's pictures sit
+   * together behind a card with their name on it. Rebuilding rather than
+   * appending is what lets the grouping survive a new picture arriving.
+   */
+  private rebuildWall(): void {
+    this.room.pictureWall.clear();
+
+    const bySeat = this.wallItems.slice().sort((a, b) => a.seat - b.seat);
+    const shared = this.staff.length > 1;
+    let slot = 0;
+    let lastSeat: number | null = null;
+
+    for (const picture of bySeat) {
+      if (shared && picture.seat !== lastSeat) {
+        const who = this.staff.find((person) => person.seat === picture.seat);
+        this.room.pictureWall.add(
+          wallPlaque(slot, who?.name ?? 'Pip', picture.seat >= 0 ? 0xffd9a0 : 0xa8d8c0),
+        );
+        slot += 1;
+        lastSeat = picture.seat;
+      }
+      this.room.pictureWall.add(
+        hangDrawing(slot, picture.colour, picture.teddy ? 'teddy' : undefined),
+      );
+      slot += 1;
+    }
+    this.onTheWall = slot;
+    this.wallKey = encodeWall(this.wallItems);
   }
 
   /**
@@ -2778,12 +3153,20 @@ export class DaycareWorld {
       return {
         seat: person.seat,
         name: person.name,
+        skin: person.skin,
         looked: s.looked,
         ticked: s.ticked,
         tidied: s.tidied,
         brave: s.brave,
+        prevented: s.prevented,
         home: s.home,
-        total: s.looked * 2 + s.ticked + s.tidied * 2 + s.brave * 6 + s.home * 3,
+        total:
+          s.looked * 2 +
+          s.ticked +
+          s.tidied * 2 +
+          s.brave * 6 +
+          s.prevented * 4 +
+          s.home * 3,
       };
     });
     scores.sort((a, b) => b.total - a.total);
@@ -2795,7 +3178,7 @@ export class DaycareWorld {
 
     // Reset for tomorrow.
     for (const person of this.staff) {
-      person.score = { looked: 0, ticked: 0, tidied: 0, brave: 0, home: 0 };
+      person.score = { looked: 0, ticked: 0, tidied: 0, brave: 0, prevented: 0, home: 0 };
     }
     return { scores, employeeOfTheShift: winner };
   }
@@ -2875,12 +3258,31 @@ export class DaycareWorld {
     // Capped, so a backgrounded tab does not come back and jump the whole day.
     const dt = Math.min((now - this.lastFrameAt) / 1000, 0.05);
     this.lastFrameAt = now;
-    this.step(dt);
+
+    // One bad frame must not end the shift. Anything thrown in here used to
+    // escape into the animation loop and stop it for good: the building froze,
+    // the host stopped sending frames, and everybody else was told the host had
+    // left when she was still sitting there. Now a frame that goes wrong is
+    // skipped and the next one carries on.
+    try {
+      this.step(dt);
+    } catch (error) {
+      this.frameFaults += 1;
+      if (this.frameFaults <= 3) console.error('skipped a frame:', error);
+    }
+
     this.renderer.render(this.scene, this.camera);
     this.frame += 1;
     // Every other frame: often enough that the screen feels immediate,
     // rarely enough that React is not rebuilding the HUD sixty times a second.
-    if (this.frame % 2 === 0) this.publishSnapshot();
+    if (this.frame % 2 === 0) {
+      try {
+        this.publishSnapshot();
+      } catch (error) {
+        this.frameFaults += 1;
+        if (this.frameFaults <= 3) console.error('could not draw the HUD:', error);
+      }
+    }
   };
 
   private step(dt: number): void {
@@ -2893,10 +3295,14 @@ export class DaycareWorld {
       // Nothing works without the host, and without this the drift correction
       // keeps dragging you back to the last place they knew about, like an
       // elastic band.
-      if (!this.hostLeft && performance.now() - this.lastHostWordAt > 4000) this.hostLeft = true;
+      const quietFor = performance.now() - this.lastHostWordAt;
+      if (quietFor > HOST_SILENCE_MS && netSession.status !== 'connected') this.hostLeft = true;
+      else if (quietFor > HOST_SILENCE_MS * 2) this.hostLeft = true;
       if (!this.hostLeft) this.stepGuestVisuals(dt);
       return;
     }
+
+    if (this.mode === 'nightcare') this.stepEating(dt);
 
     if (!this.gameOver && !this.dayReport) {
       this.stepPlayer(dt, ms);
@@ -2921,6 +3327,14 @@ export class DaycareWorld {
 
   private stepStaff(who: Staff, dt: number, ms: number, move: { x: number; y: number }): void {
     if (who.teaMsLeft > 0) who.teaMsLeft = Math.max(0, who.teaMsLeft - ms);
+
+    // Flat on the floor. You stay exactly where you were eaten.
+    if (who.flatMsLeft > 0) {
+      who.pending = null;
+      who.walkPhase = 0;
+      who.model.root.position.set(kx(who.x), 0, kz(who.y));
+      return;
+    }
 
     let dx = move.x;
     let dy = move.y;
@@ -2981,16 +3395,46 @@ export class DaycareWorld {
     const there = roomAt(destination.x, destination.y);
     if (here === there) return destination;
 
-    if (here !== 'play') {
-      const out = doorwayInto(here);
-      // Only aim for the doorway until we are actually through it.
-      if (out && Math.abs(who.x - out.x) > 30) return out;
-    }
-    if (there !== 'play') {
-      const into = doorwayInto(there);
-      if (into && Math.abs(who.x - into.x) > 30) return into;
-    }
-    return destination;
+    // Out through my door if I am in a side room, otherwise in through theirs.
+    const gate = here !== 'play' ? doorwayInto(here) : doorwayInto(there);
+    if (!gate) return destination;
+
+    // Go at the gap in two moves, never one. Heading straight for a point on
+    // the far side cuts the corner, and cutting the corner from the playroom
+    // towards the music room takes you through the staff room — where the
+    // route decides you now have to come back out again, and you pace between
+    // the two forever. So: line up with the gap on this side first, and only
+    // then step through it. Aiming a little way past rather than at the middle
+    // matters too, or you stand in the doorway still counted as being in the
+    // room you came from.
+    const onTheLeft = gate.x < ROOM.width / 2;
+    const step = 70;
+    const playX = gate.x + (onTheLeft ? step : -step);
+    const roomX = gate.x + (onTheLeft ? -step : step);
+
+    // Aim at a part of the gap that is actually clear on both sides of it. The
+    // cots stand across the bottom of the playroom, right where the shop
+    // doorway opens, so aiming at the middle of that gap walks you into the
+    // beds and leaves you pressed against them.
+    const span = doorwaySpan(here !== 'play' ? here : there);
+    const middle = gate.y;
+    const choices = span
+      ? [middle, span.y0 + 40, span.y1 - 40, span.y0 + 20, span.y1 - 20]
+      : [middle];
+    const aimY =
+      choices.find((y) => !insideFurniture(playX, y) && !insideFurniture(roomX, y)) ?? middle;
+
+    // Line up with the gap on this side first, then step through. Going at it
+    // diagonally cuts the corner, and cutting the corner from the playroom
+    // towards the music room takes you through the staff room — where the
+    // route decides you have to come back out again, and you pace between the
+    // two forever.
+    const lined = Math.abs(who.y - aimY) <= 50;
+    const playSide = { x: playX, y: aimY };
+    const roomSide = { x: roomX, y: aimY };
+
+    if (here !== 'play') return lined ? playSide : roomSide;
+    return lined ? roomSide : playSide;
   }
 
   /** Axis-aligned sliding collision: try x, then y, so you slide along walls. */
@@ -3565,12 +4009,27 @@ export class DaycareWorld {
    * a round trip.
    */
   private stepGuestSelf(who: Staff, dt: number): void {
+    // Eaten. Nothing we press moves us, so do not predict otherwise — the
+    // correction would only drag us back and look like a glitch.
+    if ((this.latestFrame?.staff[who.seat]?.flat ?? false) || who.flatModel) {
+      who.remoteMove = { x: 0, y: 0 };
+      return;
+    }
+
     const move = walkVector();
     who.remoteMove = move;
 
     if (move.x !== 0 || move.y !== 0) {
       who.facing = Math.atan2(move.x, move.y);
-      const speed = PLAYER.speed * (1 + this.upgrades.shoes * SHOP.shoesSpeedStep);
+      // The *host's* numbers, not ours. A guest never bought the shoes and
+      // never made the tea — the host did, on their behalf — so predicting at
+      // our own idea of the speed leaves us trailing, and the correction then
+      // drags us forward in jerks every time a frame lands.
+      const hud = this.latestFrame?.hud;
+      const speed =
+        PLAYER.speed *
+        (1 + (hud?.upgrades.shoes ?? 0) * SHOP.shoesSpeedStep) *
+        ((hud?.teaMsLeft ?? 0) > 0 ? PLAYER.teaSpeedMultiplier : 1);
       const moved = this.moveWithCollision(who.x, who.y, move.x * speed * dt, move.y * speed * dt);
       who.x = moved.x;
       who.y = moved.y;
